@@ -19,9 +19,9 @@ package app
 import (
 	"appengine"
 	"bytes"
-	"doc"
 	"errors"
 	"fmt"
+	"github.com/garyburd/gopkgdoc/doc"
 	godoc "go/doc"
 	"net/http"
 	"net/url"
