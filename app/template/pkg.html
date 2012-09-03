@@ -30,7 +30,7 @@
 
 {{template "NavBar" ""}}
 
-<div class="page-header">
+<div class="gpd-header">
   <div class="container">
     <h1><a href="{{.ProjectURL|html}}">{{.ProjectName|html}}</a> <small>{{.|breadcrumbs}}</small></h1>
   </div>
@@ -44,7 +44,7 @@
 {{.Doc|comment}}
 {{else}}{{if .Name}}
 
-<p><code>import "{{.ImportPath|html}}"</code></p>
+<pre class="import">import "{{.ImportPath|html}}"</pre>
 
 <ul class="unstyled">
   <li><a href="#overview">Overview</a>
@@ -79,7 +79,7 @@
 {{if .Vars}}<h3 id="variables">Variables</h3>{{range .Vars}}<pre>{{.Decl|decl}}</pre>{{.Doc|comment}}{{end}}{{end}}
 
 {{range .Funcs}}<h3 id="{{.Name|html}}">func {{template "SourceLink" .}}</h3>
-<p><code>{{.Decl|decl}}</code></p>{{.Doc|comment}}
+<pre clas="func">{{.Decl|decl}}</pre>{{.Doc|comment}}
 {{template "Examples" .}}
 {{end}}
 
@@ -90,12 +90,12 @@
 {{template "Examples" .}}
 
 {{range .Funcs}}<h4 id="{{.Name|html}}">func {{template "SourceLink" . }}</h4>
-<p><code>{{.Decl|decl}}</code></p>{{.Doc|comment}}
+<pre>{{.Decl|decl}}</pre>{{.Doc|comment}}
 {{template "Examples" .}}
 {{end}}
 
 {{range .Methods}}<h4 id="{{$t.Name|html}}.{{.Name|html}}">func ({{.Recv|html}}) {{template "SourceLink" .}}</h4>
-<p><code>{{.Decl|decl}}</code></p>{{.Doc|comment}}
+<pre>{{.Decl|decl}}</pre>{{.Doc|comment}}
 {{template "Examples" .}}
 {{end}}
 
@@ -120,7 +120,7 @@
   {{end}}
 {{end}}
 
-<div class="page-footer">
+<div class="gpd-footer">
   <p class="pull-right"><a href="#">Back to top</a></p>
   <form name="refresh" method="POST" action="/-/refresh" class="form-inline">
     <p>GoPkgDoc generated this page from the <a href="{{.ProjectURL|html}}">{{.ProjectName|html}} source code</a> {{.Updated|relativeTime}}. 
