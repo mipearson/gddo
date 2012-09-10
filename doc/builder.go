@@ -350,17 +350,22 @@ type Example struct {
 
 var exampleOutputRx = regexp.MustCompile(`(?i)//[[:space:]]*output:`)
 
-func (b *builder) getExamples(name string) []Example {
-	var docs []Example
+func (b *builder) getExamples(name string) []*Example {
+	var docs []*Example
 	for _, e := range b.examples {
-		n := e.Name
-		if i := strings.LastIndex(n, "_"); i >= 0 {
-			if i < len(n)-1 && !startsWithUppercase(n[i+1:]) {
-				n = n[:i]
-			}
-		}
-		if n != name {
+		if !strings.HasPrefix(e.Name, name) {
 			continue
+		}
+		n := e.Name[len(name):]
+		if n != "" {
+			if i := strings.LastIndex(n, "_"); i != 0 {
+				continue
+			}
+			n = n[1:]
+			if startsWithUppercase(n) {
+				continue
+			}
+			n = strings.Title(n)
 		}
 
 		output := e.Output
@@ -383,7 +388,7 @@ func (b *builder) getExamples(name string) []Example {
 			// drop output, as the output comment will appear in the code
 			output = ""
 		}
-		docs = append(docs, Example{Name: e.Name, Doc: e.Doc, Code: code, Output: output})
+		docs = append(docs, &Example{Name: n, Doc: e.Doc, Code: code, Output: output})
 	}
 	return docs
 }
@@ -394,7 +399,7 @@ type Func struct {
 	Doc      string
 	Name     string
 	Recv     string
-	Examples []Example
+	Examples []*Example
 }
 
 func (b *builder) funcs(fdocs []*doc.Func) []*Func {
@@ -430,7 +435,7 @@ type Type struct {
 	Vars     []*Value
 	Funcs    []*Func
 	Methods  []*Func
-	Examples []Example
+	Examples []*Example
 }
 
 func (b *builder) types(tdocs []*doc.Type) []*Type {
@@ -502,7 +507,7 @@ func (b *builder) openFile(path string) (io.ReadCloser, error) {
 }
 
 // PackageVersion is modified when previously stored packages are invalid.
-const PackageVersion = "3"
+const PackageVersion = "4"
 
 type Package struct {
 	// The import path for this package.
@@ -545,7 +550,7 @@ type Package struct {
 	Vars   []*Value
 
 	// Package examples
-	Examples []Example
+	Examples []*Example
 
 	// Source files.
 	Files []*File

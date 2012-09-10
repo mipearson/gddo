@@ -171,6 +171,65 @@ func urlFmt(path string) string {
 	return u.String()
 }
 
+type texample struct {
+	Object  interface{}
+	Example *doc.Example
+}
+
+func examples(pdoc *doc.Package) (examples []*texample) {
+	for _, e := range pdoc.Examples {
+		examples = append(examples, &texample{pdoc, e})
+	}
+	for _, f := range pdoc.Funcs {
+		for _, e := range f.Examples {
+			examples = append(examples, &texample{f, e})
+		}
+	}
+	for _, t := range pdoc.Types {
+		for _, e := range t.Examples {
+			examples = append(examples, &texample{t, e})
+		}
+		for _, f := range t.Funcs {
+			for _, e := range f.Examples {
+				examples = append(examples, &texample{f, e})
+			}
+		}
+		for _, f := range t.Methods {
+			for _, e := range f.Examples {
+				examples = append(examples, &texample{f, e})
+			}
+		}
+	}
+	return
+}
+
+func exampleIdFmt(v interface{}, example *doc.Example) string {
+	buf := make([]byte, 0, 64)
+	buf = append(buf, "_example"...)
+
+	switch v := v.(type) {
+	case *doc.Type:
+		buf = append(buf, '_')
+		buf = append(buf, v.Name...)
+	case *doc.Func:
+		buf = append(buf, '_')
+		if v.Recv != "" {
+			if v.Recv[0] == '*' {
+				buf = append(buf, v.Recv[1:]...)
+			} else {
+				buf = append(buf, v.Recv...)
+			}
+			buf = append(buf, '_')
+		}
+		buf = append(buf, v.Name...)
+	}
+	if example.Name != "" {
+		buf = append(buf, '-')
+		buf = append(buf, example.Name...)
+	}
+	return template.HTMLEscapeString(string(buf))
+}
+
 func executeTemplate(w http.ResponseWriter, name string, status int, data interface{}) error {
 	s := templateSet
 	if appengine.IsDevAppServer() {
@@ -205,6 +264,11 @@ func parseTemplates() (*template.Template, error) {
 		"relativeTime": relativeTime,
 		"importPath":   importPathFmt,
 		"url":          urlFmt,
+		"exampleId":    exampleIdFmt,
+		"examples":     examples,
+		"isType":       func(v interface{}) bool { _, ok := v.(*doc.Type); return ok },
+		"isPackage":    func(v interface{}) bool { _, ok := v.(*doc.Package); return ok },
+		"isFunc":       func(v interface{}) bool { _, ok := v.(*doc.Func); return ok },
 	})
 	return set.ParseGlob("template/*.html")
 }

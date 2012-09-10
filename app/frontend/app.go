@@ -197,8 +197,13 @@ func servePackage(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	t := "pkg.html"
+	if pdoc.IsCmd {
+		t = "cmd.html"
+	}
+
 	pkgs, cmds := filterCmds(pkgs)
-	return executeTemplate(w, "pkg.html", 200, map[string]interface{}{
+	return executeTemplate(w, t, 200, map[string]interface{}{
 		"pkgs": pkgs,
 		"cmds": cmds,
 		"pdoc": pdoc,
