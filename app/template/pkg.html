@@ -28,7 +28,9 @@
 <ul class="unstyled">
   <li><a href="#_overview">Overview</a>
   <li><a href="#_index">Index</a>
+  <li><a href="#_files">Package Files</a>
   {{if $examples}}<li><a href="#_examples">Examples</a>{{end}}
+  {{if or $.pkgs $.cmds}}<li><a href="#_subdirs">Subdirectories</a>{{end}}
 </ul>
 
 <h3 id="_overview">Overview</h3>
@@ -38,7 +40,6 @@
 <h3 id="_index">Index</h3>
 <div style="-webkit-column-count: 2; -moz-column-count: 2; column-count: 2">
 <ul class="unstyled">
-<li><a href="#_files">Package Files</a>
 {{if .Consts}}<li><a href="#_constants">Constants</a>{{end}}
 {{if .Vars}}<li><a href="#_variables">Variables</a>{{end}}
 {{range .Funcs}}<li><a href="#{{.Name}}" title="{{.Decl.Text|html}}">func {{.Name|html}}</a>{{end}}
@@ -49,7 +50,6 @@
       {{range .Methods}}<li><a href="#{{$t.Name|html}}.{{.Name|html}}" title="{{.Decl.Text|html}}">func ({{.Recv|html}}) {{.Name|html}}</a>{{end}}
     {{if or .Funcs .Methods}}</ul>{{end}}
 {{end}}
-{{if or $.pkgs $.cmds}}<li><a href="#_subdirs">Subdirectories</a>{{end}}
 </ul>
 </div>
 
