@@ -252,6 +252,10 @@ func ValidRemotePath(importPath string) bool {
 		}
 	}
 
+	if i := strings.Index(importPath, "/src/pkg/"); i > 0 && StandardPackages[importPath[i+len("/src/pkg/"):]] {
+		return false
+	}
+
 	for _, part := range parts[1:] {
 		if len(part) == 0 ||
 			part[0] == '.' ||

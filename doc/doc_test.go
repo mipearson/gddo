@@ -21,6 +21,9 @@ import (
 var goodImportPaths = []string{
 	"github.com/user/repo",
 	"camlistore.org",
+	"github.com/user/repo/src/pkg/compress/somethingelse",
+	"github.com/user/repo/src/compress/gzip",
+	"github.com/user/repo/src/pkg",
 }
 
 var badImportPaths = []string{
@@ -31,6 +34,7 @@ var badImportPaths = []string{
 	"github.com/user/repo/testdata/x",
 	"github.com/user/repo/_ignore/x",
 	"github.com/user/repo/.ignore/x",
+	"github.com/user/repo/src/pkg/compress/gzip",
 }
 
 func TestValidRemotePath(t *testing.T) {
