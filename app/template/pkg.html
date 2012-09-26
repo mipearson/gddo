@@ -1,5 +1,5 @@
 {{define "pkg.html"}}<!DOCTYPE html>
-{{with .pdoc}}
+{{with .Dpkg}}
 <html lang="en">
 <head>
   {{template "CommonHead"}}
@@ -30,7 +30,7 @@
   <li><a href="#_index">Index</a>
   <li><a href="#_files">Package Files</a>
   {{if $examples}}<li><a href="#_examples">Examples</a>{{end}}
-  {{if or $.pkgs $.cmds}}<li><a href="#_subdirs">Subdirectories</a>{{end}}
+  {{if or $.Pkgs $.Cmds}}<li><a href="#_subdirs">Subdirectories</a>{{end}}
 </ul>
 
 <h3 id="_overview">Overview</h3>

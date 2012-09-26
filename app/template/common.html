@@ -3,6 +3,13 @@
 <link href="/-/static/css/bootstrap.css?v=b" rel="stylesheet">
 {{end}}
 
+{{define "Query"}}
+<form class="form-inline">
+  <input type="text" class="span6" id="q" name="q" value="{{.|html}}" placeholder="Package import path"/>
+  <button type="submit" class="btn">Go</button>
+</form>
+{{end}}
+
 {{define "NavBar"}}
 <div class="navbar navbar-inverse navbar-static-top">
   <div class="navbar-inner">
@@ -18,20 +25,20 @@
 </div>
 {{end}}
 
-{{define "PkgCmdFooter"}}{{with .pdoc}}
-{{if or $.pkgs $.cmds}}{{if .Name}}<h3 id="_subdirs">Subdirectories</h3>{{end}}
-  {{with $.pkgs}}
+{{define "PkgCmdFooter"}}{{with .Dpkg}}
+{{if or $.Pkgs $.Cmds}}{{if .Name}}<h3 id="_subdirs">Subdirectories</h3>{{end}}
+  {{with $.Pkgs}}
     <h4>Packages</h4>
     <table class="table table-condensed">
     <thead><tr><th>Path</th><th>Synopsis</th></tr></thead>
-    <tbody>{{range .}}<tr><td><a href="/{{.ImportPath|html}}">{{relativePath .ImportPath $.pdoc.ImportPath}}</a><td>{{.Synopsis|html}}</td></tr>{{end}}</tbody>
+    <tbody>{{range .}}<tr><td><a href="/{{.ImportPath|html}}">{{relativePath .ImportPath $.Dpkg.ImportPath}}</a><td>{{.Synopsis|html}}</td></tr>{{end}}</tbody>
     </table>
   {{end}}
-  {{with $.cmds}}
+  {{with $.Cmds}}
     <h4>Commands</h4>
     <table class="table table-condensed">
     <thead><tr><th>Path</th><th>Synopsis</th></tr></thead>
-    <tbody>{{range .}}<tr><td><a href="/{{.ImportPath|html}}">{{relativePath .ImportPath $.pdoc.ImportPath}}</a><td>{{.Synopsis|html}}</td></tr>{{end}}</tbody>
+    <tbody>{{range .}}<tr><td><a href="/{{.ImportPath|html}}">{{relativePath .ImportPath $.Dpkg.ImportPath}}</a><td>{{.Synopsis|html}}</td></tr>{{end}}</tbody>
     </table>
   {{end}}
 {{end}}

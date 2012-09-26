@@ -14,7 +14,7 @@
 
 // +build appengine
 
-package app
+package frontend
 
 import (
 	"appengine"
