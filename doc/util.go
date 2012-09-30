@@ -88,7 +88,7 @@ func httpGet(client *http.Client, url string) (io.ReadCloser, error) {
 		return resp.Body, nil
 	}
 	resp.Body.Close()
-	if resp.StatusCode == 404 {
+	if resp.StatusCode == 404 || resp.StatusCode == 403 {
 		err = ErrPackageNotFound
 	} else {
 		err = GetError{req.URL.Host, fmt.Errorf("get %s -> %d", url, resp.StatusCode)}
