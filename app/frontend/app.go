@@ -25,6 +25,7 @@ import (
 	"encoding/gob"
 	"fmt"
 	"github.com/garyburd/gopkgdoc/doc"
+	"github.com/garyburd/indigo/web"
 	"io"
 	"net/http"
 	"net/url"
@@ -177,6 +178,14 @@ func (f handlerFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func getTemplateExt(r *http.Request) string {
+	req := &web.Request{Header: map[string][]string(r.Header)}
+	if web.NegotiateContentType(req, []string{"text/html", "text/plain"}, "text/html") == "text/plain" {
+		return ".txt"
+	}
+	return ".html"
+}
+
 func servePackage(w http.ResponseWriter, r *http.Request) error {
 	c := appengine.NewContext(r)
 
@@ -186,24 +195,26 @@ func servePackage(w http.ResponseWriter, r *http.Request) error {
 		return nil
 	}
 
+	ext := getTemplateExt(r)
+
 	importPath := r.URL.Path[1:]
 	pdoc, pkgs, err := getDoc(c, importPath)
 	switch err {
 	case doc.ErrPackageNotFound:
-		return executeTemplate(w, "notfound.html", 404, nil)
+		return executeTemplate(w, "notfound"+ext, 404, nil)
 	case nil:
 		//ok
 	default:
 		return err
 	}
 
-	t := "pkg.html"
+	t := "pkg"
 	if pdoc.IsCmd {
-		t = "cmd.html"
+		t = "cmd"
 	}
 
 	pkgs, cmds := filterCmds(pkgs)
-	return executeTemplate(w, t, 200, map[string]interface{}{
+	return executeTemplate(w, t+ext, 200, map[string]interface{}{
 		"pkgs": pkgs,
 		"cmds": cmds,
 		"pdoc": pdoc,

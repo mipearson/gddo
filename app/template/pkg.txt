@@ -1,0 +1,38 @@
+{{define "pkg.txt"}}{{with .pdoc}}PACKAGE{{if .Name}}
+
+package {{.Name}}
+    import "{{.ImportPath}}"
+
+{{.Doc|commentText}}
+{{if .Consts}}
+CONSTANTS
+
+{{range .Consts}}{{.Decl.Text}}
+{{.Doc|commentText}}{{end}}
+{{end}}{{if .Vars}}
+VARIABLES
+
+{{range .Vars}}{{.Decl.Text}}
+{{.Doc|commentText}}{{end}}
+{{end}}{{if .Funcs}}
+FUNCTIONS
+
+{{range .Funcs}}{{.Decl.Text}}
+{{.Doc|commentText}}
+{{end}}{{end}}{{if .Types}}
+TYPES
+
+{{range .Types}}{{.Decl.Text}}
+{{.Doc|commentText}}
+{{range .Consts}}{{.Decl.Text}}
+{{.Doc|commentText}}
+{{end}}{{range .Vars}}{{.Decl.Text}}
+{{.Doc|commentText}}
+{{end}}{{range .Funcs}}{{.Decl.Text}}
+{{.Doc|commentText}}
+{{end}}{{range .Methods}}{{.Decl.Text}}
+{{.Doc|commentText}}
+{{end}}{{end}}
+{{end}}
+{{template "SubdirsText" $}}
+{{end}}{{end}}{{end}}

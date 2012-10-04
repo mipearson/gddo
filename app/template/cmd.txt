@@ -1,0 +1,5 @@
+{{define "cmd.txt"}}{{with .pdoc}}
+COMMAND DOCUMENTATION
+
+{{.Doc|commentText}}
+{{template "SubdirsText" $}}{{end}}{{end}}

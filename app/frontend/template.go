@@ -101,7 +101,7 @@ var (
 	rfcReplace = []byte(`<a href="http://tools.ietf.org/html/rfc$1">$0</a>`)
 )
 
-// commentFmt formats a source code control comment as HTML.
+// commentFmt formats a source code comment as HTML.
 func commentFmt(v string) string {
 	var buf bytes.Buffer
 	godoc.ToHTML(&buf, v, nil)
@@ -109,6 +109,15 @@ func commentFmt(v string) string {
 	p = bytes.Replace(p, h3Open, h4Open, -1)
 	p = bytes.Replace(p, h3Close, h4Close, -1)
 	p = rfcRE.ReplaceAll(p, rfcReplace)
+	return string(p)
+}
+
+// commentTextFmt formats a source code comment as text.
+func commentTextFmt(v string) string {
+	const indent = "    "
+	var buf bytes.Buffer
+	godoc.ToText(&buf, v, indent, "\t", 80-2*len(indent))
+	p := buf.Bytes()
 	return string(p)
 }
 
@@ -230,6 +239,11 @@ func exampleIdFmt(v interface{}, example *doc.Example) string {
 	return template.HTMLEscapeString(string(buf))
 }
 
+var contentTypes = map[string]string{
+	".html": "text/html; charset=utf-8",
+	".txt":  "text/plain; charset=utf-8",
+}
+
 func executeTemplate(w http.ResponseWriter, name string, status int, data interface{}) error {
 	s := templateSet
 	if appengine.IsDevAppServer() {
@@ -239,7 +253,9 @@ func executeTemplate(w http.ResponseWriter, name string, status int, data interf
 			return err
 		}
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if ct, ok := contentTypes[path.Ext(name)]; ok {
+		w.Header().Set("Content-Type", ct)
+	}
 	w.WriteHeader(status)
 	return s.ExecuteTemplate(w, name, data)
 }
@@ -255,6 +271,7 @@ func parseTemplates() (*template.Template, error) {
 	}
 	set.Funcs(template.FuncMap{
 		"comment":      commentFmt,
+		"commentText":  commentTextFmt,
 		"decl":         declFmt,
 		"equal":        reflect.DeepEqual,
 		"map":          mapFmt,
@@ -270,7 +287,11 @@ func parseTemplates() (*template.Template, error) {
 		"isPackage":    func(v interface{}) bool { _, ok := v.(*doc.Package); return ok },
 		"isFunc":       func(v interface{}) bool { _, ok := v.(*doc.Func); return ok },
 	})
-	return set.ParseGlob("template/*.html")
+	_, err = set.ParseGlob("template/*.html")
+	if err != nil {
+		return nil, err
+	}
+	return set.ParseGlob("template/*.txt")
 }
 
 func init() {
