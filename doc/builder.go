@@ -461,17 +461,6 @@ type File struct {
 	URL  string
 }
 
-func (b *builder) files(names []string) []*File {
-	var result []*File
-	for _, name := range names {
-		result = append(result, &File{
-			Name: name,
-			URL:  b.srcs[name].browseURL,
-		})
-	}
-	return result
-}
-
 type source struct {
 	name      string
 	browseURL string
@@ -552,8 +541,13 @@ type Package struct {
 	// Package examples
 	Examples []*Example
 
-	// Source files.
-	Files []*File
+	// Files.
+	Files     []*File
+	TestFiles []*File
+
+	// Source size in bytes.
+	SourceSize     int
+	TestSourceSize int
 
 	// Imports
 	Imports     []string
@@ -622,6 +616,8 @@ func buildDoc(importPath, projectRoot, projectName, projectURL, etag string, lin
 				b.pkg.Errors = append(b.pkg.Errors, err.Error())
 				continue
 			}
+			b.pkg.Files = append(b.pkg.Files, &File{Name: name, URL: b.srcs[name].browseURL})
+			b.pkg.SourceSize += len(b.srcs[name].data)
 			b.ast.Files[name] = file
 		}
 	}
@@ -632,7 +628,10 @@ func buildDoc(importPath, projectRoot, projectName, projectURL, etag string, lin
 		file, err := parser.ParseFile(b.fset, name, b.srcs[name].data, parser.ParseComments)
 		if err != nil {
 			b.pkg.Errors = append(b.pkg.Errors, err.Error())
+			continue
 		}
+		b.pkg.TestFiles = append(b.pkg.TestFiles, &File{Name: name, URL: b.srcs[name].browseURL})
+		b.pkg.TestSourceSize += len(b.srcs[name].data)
 		b.examples = append(b.examples, doc.Examples(file)...)
 	}
 
@@ -645,7 +644,6 @@ func buildDoc(importPath, projectRoot, projectName, projectURL, etag string, lin
 	b.pkg.Synopsis = synopsis(b.pkg.Doc)
 
 	b.pkg.Examples = b.getExamples("")
-	b.pkg.Files = b.files(pdoc.Filenames)
 	b.pkg.IsCmd = pkg.IsCommand()
 
 	b.pkg.Consts = b.values(pdoc.Consts)
