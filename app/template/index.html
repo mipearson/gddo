@@ -12,33 +12,25 @@
 
 <div class="gpd-header">
   <div class="container">
-    <h1>Index <small><a href="#packages">Packages</a> and <a href="#commands">commands</a> visited on GoPkgDoc</small></h1>
+    <h1>Index <small>Packages visited on GoPkgDoc</small></h1>
   </div>
 </div>
 
 <div class="container spacey">
 
-  {{with .pkgs}}
-    <h3 id="packages">Packages</h3>
-    <table class="table table-condensed">
-    <thead><tr><th>Path</th><th>Synopsis</th></tr></thead>
-    <tbody>{{range .}}<tr><td><a href="/{{.ImportPath|html}}">{{.ImportPath|importPath}}</a><td>{{.Synopsis|html}}</td></tr>{{end}}</tbody>
-    </table>
-  {{end}}
+  <h2></h2>
 
-  {{with .cmds}}
-    <h3 id="commands">Commands</h3>
+  {{with .pkgs}}
     <table class="table table-condensed">
     <thead><tr><th>Path</th><th>Synopsis</th></tr></thead>
-    <tbody>{{range .}}<tr><td><a href="/{{.ImportPath|html}}">{{.ImportPath|importPath}}</a><td>{{.Synopsis|html}}</td></tr>{{end}}</tbody>
+    <tbody>{{range .}}{{if .IsCmd}}{{else}}<tr><td><a href="/{{.ImportPath|html}}">{{.ImportPath|importPath}}</a><td>{{.Synopsis|html}}</td></tr>{{end}}{{end}}</tbody>
     </table>
   {{end}}
 
   <div class="gpd-footer">
     <p class="pull-right"><a href="#">Back to top</a></p>
-    <p>Number of packages: {{len .pkgs}}.  Number of commands: {{len .cmds}}.
-    <p>To add a package to GoPkgDoc, submit the package import path from the
-    GoPkgDoc <a href="/">home page</a>. 
+    <p>Number of packages: {{len .pkgs}}.
+    <p>To add a package to GoPkgDoc, submit the package import path from the GoPkgDoc <a href="/">home page</a>. 
   </div>
 
 </div>

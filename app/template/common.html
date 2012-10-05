@@ -18,24 +18,14 @@
 </div>
 {{end}}
 
-{{define "PkgCmdFooter"}}{{with .pdoc}}
-{{if or $.pkgs $.cmds}}{{if .Name}}<h3 id="_subdirs">Subdirectories</h3>{{end}}
-  {{with $.pkgs}}
-    <h4>Packages</h4>
+{{define "PkgCmdFooter"}}
+{{if $.pkgs}}{{if $.pdoc.Name}}<h3 id="_subdirs">Subdirectories</h3>{{else}}<h3>Directory</h3>{{end}}
     <table class="table table-condensed">
     <thead><tr><th>Path</th><th>Synopsis</th></tr></thead>
-    <tbody>{{range .}}<tr><td><a href="/{{.ImportPath|html}}">{{relativePath .ImportPath $.pdoc.ImportPath}}</a><td>{{.Synopsis|html}}</td></tr>{{end}}</tbody>
+    <tbody>{{range $.pkgs}}<tr><td><a href="/{{.ImportPath|html}}">{{relativePath .ImportPath $.pdoc.ImportPath}}</a><td>{{.Synopsis|html}}</td></tr>{{end}}</tbody>
     </table>
-  {{end}}
-  {{with $.cmds}}
-    <h4>Commands</h4>
-    <table class="table table-condensed">
-    <thead><tr><th>Path</th><th>Synopsis</th></tr></thead>
-    <tbody>{{range .}}<tr><td><a href="/{{.ImportPath|html}}">{{relativePath .ImportPath $.pdoc.ImportPath}}</a><td>{{.Synopsis|html}}</td></tr>{{end}}</tbody>
-    </table>
-  {{end}}
 {{end}}
-
+{{with $.pdoc}}
 <div class="gpd-footer">
   <p class="pull-right"><a href="#">Back to top</a></p>
   <form name="refresh" method="POST" action="/-/refresh" class="form-inline">

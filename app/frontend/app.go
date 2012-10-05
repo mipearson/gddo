@@ -40,18 +40,6 @@ const (
 	docKeyPrefix = "doc-" + doc.PackageVersion + ":"
 )
 
-func filterCmds(in []*Package) (out []*Package, cmds []*Package) {
-	out = in[0:0]
-	for _, pkg := range in {
-		if pkg.IsCmd {
-			cmds = append(cmds, pkg)
-		} else {
-			out = append(out, pkg)
-		}
-	}
-	return
-}
-
 func childPackages(c appengine.Context, projectRoot, importPath string) ([]*Package, error) {
 	projectPkgs, err := queryPackages(c, projectListKeyPrefix+projectRoot,
 		datastore.NewQuery("Package").
@@ -213,10 +201,8 @@ func servePackage(w http.ResponseWriter, r *http.Request) error {
 		t = "cmd"
 	}
 
-	pkgs, cmds := filterCmds(pkgs)
 	return executeTemplate(w, t+ext, 200, map[string]interface{}{
 		"pkgs": pkgs,
-		"cmds": cmds,
 		"pdoc": pdoc,
 	})
 }
@@ -245,10 +231,8 @@ func serveGoIndex(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	pkgs, cmds := filterCmds(pkgs)
 	return executeTemplate(w, "std.html", 200, map[string]interface{}{
 		"pkgs": pkgs,
-		"cmds": cmds,
 	})
 }
 
@@ -258,10 +242,8 @@ func serveIndex(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	pkgs, cmds := filterCmds(pkgs)
 	return executeTemplate(w, "index.html", 200, map[string]interface{}{
 		"pkgs": pkgs,
-		"cmds": cmds,
 	})
 }
 

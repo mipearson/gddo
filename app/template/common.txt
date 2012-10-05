@@ -1,4 +1,3 @@
-{{define "SubdirsText"}}{{if or $.pkgs $.cmds}}SUBDIRECTORIES
+{{define "SubdirsText"}}{{if $.pkgs}}SUBDIRECTORIES
 {{range $.pkgs}}
-      {{.ImportPath}}{{end}}{{range $.cmds}}
       {{.ImportPath}}{{end}}{{end}}{{end}}
