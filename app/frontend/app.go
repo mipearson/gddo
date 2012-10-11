@@ -274,18 +274,27 @@ func serveAPIIndex(w http.ResponseWriter, r *http.Request) error {
 	return err
 }
 
-func serveAPIDump(w http.ResponseWriter, r *http.Request) error {
+func serveAPIPkg(w http.ResponseWriter, r *http.Request) error {
+	importPath := r.FormValue("importPath")
+	if importPath == "" {
+		http.NotFound(w, r)
+		return nil
+	}
+
+	var d Doc
 	c := appengine.NewContext(r)
-	var pkgs []*Package
-	keys, err := datastore.NewQuery("Package").GetAll(c, &pkgs)
+	err := datastore.Get(c, datastore.NewKey(c, "Doc", importPath, 0, nil), &d)
+	if err == datastore.ErrNoSuchEntity {
+		http.NotFound(w, r)
+		return nil
+	}
 	if err != nil {
 		return err
 	}
-	for i := range keys {
-		importPath := keys[i].StringID()
-		pkgs[i].ImportPath = importPath
-	}
-	return gob.NewEncoder(w).Encode(pkgs)
+
+	w.Header().Set("Content-Type", "application/binary")
+	_, err = w.Write(d.Gob)
+	return err
 }
 
 func serveAPILoad(w http.ResponseWriter, r *http.Request) error {
@@ -508,7 +517,7 @@ func init() {
 	http.Handle("/-/refresh", handlerFunc(serveClearPackageCache))
 	http.Handle("/a/index", handlerFunc(serveAPIIndex))
 	http.Handle("/a/update", http.HandlerFunc(serveAPIUpdate))
-	//http.Handle("/a/dump", handlerFunc(serveAPIDump))
+	http.Handle("/a/pkg", handlerFunc(serveAPIPkg))
 	//http.Handle("/a/load", handlerFunc(serveAPILoad))
 	//http.Handle("/a/hide", handlerFunc(serveAPIHide))
 }
