@@ -23,14 +23,11 @@ import (
 	"appengine/urlfetch"
 	"bytes"
 	"encoding/gob"
-	"fmt"
 	"github.com/garyburd/gopkgdoc/doc"
 	"github.com/garyburd/indigo/web"
 	"io"
 	"net/http"
-	"net/url"
 	"path"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -370,63 +367,6 @@ func serveAPIUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func importPathFromGoogleBrowse(m []string) string {
-	project := m[1]
-	dir := m[2]
-	if dir == "" {
-		dir = "/"
-	} else if dir[len(dir)-1] == '/' {
-		dir = dir[:len(dir)-1]
-	}
-	subrepo := ""
-	if len(m[3]) > 0 {
-		v, _ := url.ParseQuery(m[3][1:])
-		subrepo = v.Get("repo")
-		if len(subrepo) > 0 {
-			subrepo = "." + subrepo
-		}
-	}
-	if strings.HasPrefix(m[4], "#hg%2F") {
-		d, _ := url.QueryUnescape(m[4][len("#hg%2f"):])
-		if i := strings.IndexRune(d, '%'); i >= 0 {
-			d = d[:i]
-		}
-		dir = dir + "/" + d
-	}
-	return "code.google.com/p/" + project + subrepo + dir
-}
-
-var queryCleaners = []struct {
-	pat *regexp.Regexp
-	fn  func([]string) string
-}{
-	{
-		// Github source browser.
-		regexp.MustCompile(`^https?:/+github\.com/([^/]+)/([^/]+)/tree/master/(.*)$`),
-		func(m []string) string { return fmt.Sprintf("github.com/%s/%s/%s", m[1], m[2], m[3]) },
-	},
-	{
-		// Bitbucket source borwser.
-		regexp.MustCompile(`^https?:/+bitbucket\.org/([^/]+)/([^/]+)/src/[^/]+/(.*)$`),
-		func(m []string) string { return fmt.Sprintf("bitbucket.org/%s/%s/%s", m[1], m[2], m[3]) },
-	},
-	{
-		// Google Project Hosting source browser.
-		regexp.MustCompile(`^http:/+code\.google\.com/p/([^/]+)/source/browse(/[^?#]*)?(\?[^#]*)?(#.*)?$`),
-		importPathFromGoogleBrowse,
-	},
-	{
-		// Launchpad source browser.
-		regexp.MustCompile(`^https?:/+bazaar\.(launchpad\.net/.*)/files$`),
-		func(m []string) string { return m[1] },
-	},
-	{
-		// http or https prefix.
-		regexp.MustCompile(`^https?:/+(.*)$`),
-		func(m []string) string { return m[1] },
-	},
-}
-
 func cleanQuery(q string) string {
 	q = strings.TrimSpace(q)
 	if len(q) == 0 {
@@ -435,16 +375,10 @@ func cleanQuery(q string) string {
 	if q[0] == '"' && q[len(q)-1] == '"' && !strings.Contains(q, " ") {
 		q = q[1 : len(q)-1]
 	}
-	for _, c := range queryCleaners {
-		if m := c.pat.FindStringSubmatch(q); m != nil {
-			q = c.fn(m)
-			break
-		}
+	if importPath, ok := doc.IsBrowseURL(q); ok {
+		return importPath
 	}
-	if len(q) == 0 {
-		return q
-	}
-	if q[len(q)-1] == '/' {
+	if len(q) > 9 && q[len(q)-1] == '/' {
 		q = q[:len(q)-1]
 	}
 	return q

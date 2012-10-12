@@ -49,3 +49,28 @@ func TestValidRemotePath(t *testing.T) {
 		}
 	}
 }
+
+var isBrowseURLTests = []struct {
+	s          string
+	importPath string
+	ok         bool
+}{
+	{"https://bitbucket.org/user/repo/src/bd0b661a263e/p1/p2?at=default", "bitbucket.org/user/repo/p1/p2", true},
+	{"https://bitbucket.org/user/repo/src", "bitbucket.org/user/repo", true},
+	{"https://bitbucket.org/user/repo", "bitbucket.org/user/repo", true},
+	{"https://github.com/user/repo", "github.com/user/repo", true},
+	{"https://github.com/user/repo/tree/master/p1", "github.com/user/repo/p1", true},
+}
+
+func TestIsBrowseURL(t *testing.T) {
+	for _, tt := range isBrowseURLTests {
+		importPath, ok := IsBrowseURL(tt.s)
+		if tt.ok {
+			if importPath != tt.importPath || ok != true {
+				t.Errorf("IsBrowseURL(%q) = %q, %v; want %q %v", tt.s, importPath, ok, tt.importPath, true)
+			}
+		} else if ok {
+			t.Errorf("IsBrowseURL(%q) = %q, %v; want _, false", tt.s, importPath, ok)
+		}
+	}
+}
