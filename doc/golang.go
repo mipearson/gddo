@@ -23,7 +23,7 @@ var StandardPackages = map[string]bool{
 	"encoding":  true,
 	"go":        true,
 	"text":      true,
-    "database":  true,
+	"database":  true,
 
 	// go list -f '"{{.ImportPath}}": true,'  std | grep -v exp/
 	"archive/tar":         true,
