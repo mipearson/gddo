@@ -24,7 +24,7 @@ import (
 	"bytes"
 	"encoding/gob"
 	"github.com/garyburd/gopkgdoc/doc"
-	"github.com/garyburd/indigo/web"
+	//"github.com/garyburd/indigo/web"
 	"io"
 	"net/http"
 	"path"
@@ -164,10 +164,12 @@ func (f handlerFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func getTemplateExt(r *http.Request) string {
+/*
 	req := &web.Request{Header: map[string][]string(r.Header)}
 	if web.NegotiateContentType(req, []string{"text/html", "text/plain"}, "text/html") == "text/plain" {
 		return ".txt"
 	}
+*/
 	return ".html"
 }
 
