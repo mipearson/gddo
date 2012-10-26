@@ -28,6 +28,7 @@ import (
 	"io"
 	"net/http"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -57,7 +58,7 @@ func childPackages(c appengine.Context, projectRoot, importPath string) ([]*Pack
 }
 
 // getDoc gets the package documentation and child packages for the given import path.
-func getDoc(c appengine.Context, importPath string) (*doc.Package, []*Package, error) {
+func getDoc(c appengine.Context, isRobot bool, importPath string) (*doc.Package, []*Package, error) {
 
 	// 1. Look for doc in cache.
 
@@ -87,8 +88,18 @@ func getDoc(c appengine.Context, importPath string) (*doc.Package, []*Package, e
 	// 3. Get documentation from the version control service and update
 	// datastore and cache as needed.
 
-	pdoc, err = doc.Get(urlfetch.Client(c), importPath, etag)
-	c.Infof("doc.Get(%q, %q) -> %v", importPath, etag, err)
+	if isRobot {
+		if pdocSaved == nil {
+			err = doc.ErrPackageNotFound
+		} else {
+			err = doc.ErrPackageNotModified
+		}
+		pdoc = nil
+		c.Infof("skiping doc.Get for robot -> %v", err)
+	} else {
+		pdoc, err = doc.Get(urlfetch.Client(c), importPath, etag)
+		c.Infof("doc.Get(%q, %q) -> %v", importPath, etag, err)
+	}
 
 	switch err {
 	case nil:
@@ -169,8 +180,14 @@ func getTemplateExt(r *http.Request) string {
 	if web.NegotiateContentType(req, []string{"text/html", "text/plain"}, "text/html") == "text/plain" {
 		return ".txt"
 	}
-*/
 	return ".html"
+*/
+}
+
+var robotPat = regexp.MustCompile(`(:?\+https?://)|(?:\Wbot\W)`)
+
+func isRobot(ua string) bool {
+	return robotPat.MatchString(ua)
 }
 
 func servePackage(w http.ResponseWriter, r *http.Request) error {
@@ -185,7 +202,7 @@ func servePackage(w http.ResponseWriter, r *http.Request) error {
 	ext := getTemplateExt(r)
 
 	importPath := r.URL.Path[1:]
-	pdoc, pkgs, err := getDoc(c, importPath)
+	pdoc, pkgs, err := getDoc(c, isRobot(r.Header.Get("User-Agent")), importPath)
 	switch err {
 	case doc.ErrPackageNotFound:
 		return executeTemplate(w, "notfound"+ext, 404, nil)
@@ -407,7 +424,7 @@ func serveHome(w http.ResponseWriter, r *http.Request) error {
 	// documentation by import path. This will fetch the documentation from the
 	// VCS if we have not seen this import path before.
 	if doc.ValidRemotePath(q) {
-		_, _, err := getDoc(c, q)
+		_, _, err := getDoc(c, false, q)
 		switch err {
 		case nil:
 			// Automatic I'm feeling lucky.

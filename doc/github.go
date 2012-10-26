@@ -24,6 +24,11 @@ import (
 
 var githubRawHeader = http.Header{"Accept": {"application/vnd.github-blob.raw"}}
 var githubPattern = regexp.MustCompile(`^github\.com/([a-z0-9A-Z_.\-]+)/([a-z0-9A-Z_.\-]+)(/[a-z0-9A-Z_.\-/]*)?$`)
+var githubCred string
+
+func SetGithubCredentials(id, secret string) {
+	githubCred = "client_id=" + id + "&client_secret=" + secret
+}
 
 func getGithubDoc(client *http.Client, m []string, savedEtag string) (*Package, error) {
 	importPath := m[0]
@@ -33,7 +38,7 @@ func getGithubDoc(client *http.Client, m []string, savedEtag string) (*Package, 
 	userRepo := m[1] + "/" + m[2]
 	dir := normalizeDir(m[3])
 
-	p, err := httpGetBytes(client, "https://api.github.com/repos/"+userRepo+"/git/refs")
+	p, err := httpGetBytes(client, "https://api.github.com/repos/"+userRepo+"/git/refs?"+githubCred)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +73,7 @@ func getGithubDoc(client *http.Client, m []string, savedEtag string) (*Package, 
 		return nil, ErrPackageNotModified
 	}
 
-	p, err = httpGetBytes(client, "https://api.github.com/repos/"+userRepo+"/git/trees/"+treeName+"?recursive=1")
+	p, err = httpGetBytes(client, "https://api.github.com/repos/"+userRepo+"/git/trees/"+treeName+"?recursive=1&"+githubCred)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +102,7 @@ func getGithubDoc(client *http.Client, m []string, savedEtag string) (*Package, 
 			files = append(files, &source{
 				name:      f,
 				browseURL: "https://github.com/" + userRepo + "/blob/" + treeName + "/" + node.Path,
-				rawURL:    node.Url,
+				rawURL:    node.Url + "?" + githubCred,
 			})
 		}
 	}
