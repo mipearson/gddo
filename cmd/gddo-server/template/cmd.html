@@ -1,0 +1,30 @@
+{{define "cmd.html"}}<!DOCTYPE html>
+{{with .pdoc}}
+<html lang="en">
+<head>
+  {{template "CommonHead"}}
+  <title>{{.|commandName}} - GoDoc</title>
+  {{if .Synopsis}}<meta name="description" content="{{.ProjectName|html}}: {{.Synopsis|html}}">{{end}}
+  {{if .Errors}}<meta name="robots" content="noindex">{{end}}
+</head>
+
+<body>
+
+{{template "NavBar" ""}}
+{{template "ProjectNav" .}}
+
+<div class="container spacey">
+<h2>Command {{.|commandName}}</h2>
+
+{{with .Errors}}<div class="well"><p>The 
+<a href="http://golang.org/cmd/go/#Download_and_install_packages_and_dependencies">go get</a>
+command cannot install this command because of the following issues:<ul>
+{{range .}}<li>{{.|html}}{{end}}
+</ul></div>{{end}}
+ 
+{{.Doc|comment}}
+{{template "PkgCmdFooter" $}}
+</div>
+</body>
+</html>
+{{end}}{{end}}

@@ -34,7 +34,7 @@ func getLaunchpadDoc(client *http.Client, m []string, savedEtag string) (*Packag
 		rc, err := httpGet(client, "https://code.launchpad.net/"+m[2]+m[3]+"/.bzr/branch-format")
 		switch err {
 		case nil:
-			// The structure of the import path is launchpad.net/{project}/{series}/{dir}. 
+			// The structure of the import path is launchpad.net/{project}/{series}/{dir}.
 			// No fix up is needed.
 			rc.Close()
 		case ErrPackageNotFound:
@@ -106,5 +106,11 @@ func getLaunchpadDoc(client *http.Client, m []string, savedEtag string) (*Packag
 		return nil, ErrPackageNotFound
 	}
 
-	return buildDoc(importPath, projectRoot, projectName, projectURL, etag, "#L%d", files)
+	d := dir
+	if len(d) > 0 {
+		d = d[:len(d)-1]
+	}
+	browseURL := "http://bazaar.launchpad.net/+branch/" + repo + "/view/head:/" + d
+
+	return buildDoc(importPath, projectRoot, projectName, projectURL, browseURL, etag, "#L%d", files)
 }

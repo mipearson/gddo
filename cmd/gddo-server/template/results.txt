@@ -1,0 +1,2 @@
+{{define "results.txt"}}{{range .pkgs}}{{.Path}} {{.Synopsis}}
+{{end}}{{end}}

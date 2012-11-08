@@ -12,6 +12,7 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
+// Package doc fetches Go package documentation from version control services.
 package doc
 
 import (
@@ -32,11 +33,11 @@ type service struct {
 
 // services is the list of source code control services handled by gopkgdoc.
 var services = []*service{
-	&service{githubPattern, getGithubDoc, "github.com/"},
-	&service{googlePattern, getGoogleDoc, "code.google.com/"},
-	&service{bitbucketPattern, getBitbucketDoc, "bitbucket.org/"},
-	&service{launchpadPattern, getLaunchpadDoc, "launchpad.net/"},
-	&service{gitoriousPattern, getGitoriousDoc, "git.gitorious.org/"},
+	{githubPattern, getGithubDoc, "github.com/"},
+	{googlePattern, getGoogleDoc, "code.google.com/"},
+	{bitbucketPattern, getBitbucketDoc, "bitbucket.org/"},
+	{launchpadPattern, getLaunchpadDoc, "launchpad.net/"},
+	{gitoriousPattern, getGitoriousDoc, "git.gitorious.org/"},
 }
 
 func attrValue(attrs []xml.Attr, name string) string {
@@ -187,9 +188,9 @@ func Get(client *http.Client, importPath string, etag string) (pdoc *Package, er
 	}
 
 	switch {
-	case StandardPackages[importPath]:
+	case IsGoRepoPath(importPath):
 		pdoc, err = getStandardDoc(client, importPath, etag)
-	case !ValidRemotePath(importPath):
+	case !IsValidRemotePath(importPath):
 		return nil, ErrPackageNotFound
 	default:
 		pdoc, err = getStatic(client, importPath, etag)

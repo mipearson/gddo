@@ -69,7 +69,10 @@ func getGithubDoc(client *http.Client, m []string, savedEtag string) (*Package, 
 		}
 	}
 
-	if etag == savedEtag {
+	switch etag {
+	case "":
+		return nil, ErrPackageNotFound
+	case savedEtag:
 		return nil, ErrPackageNotModified
 	}
 
@@ -84,9 +87,16 @@ func getGithubDoc(client *http.Client, m []string, savedEtag string) (*Package, 
 			Path string
 			Type string
 		}
+		Url string
 	}
 	if err := json.Unmarshal(p, &tree); err != nil {
 		return nil, err
+	}
+
+	// Because Github API URLs are case-insensitive, we need to check that the
+	// userRepo returned from Github matches the one that we are requesting.
+	if !strings.HasPrefix(tree.Url, "https://api.github.com/repos/"+userRepo+"/") {
+		return nil, ErrPackageNotFound
 	}
 
 	inTree := false
@@ -115,5 +125,10 @@ func getGithubDoc(client *http.Client, m []string, savedEtag string) (*Package, 
 		return nil, err
 	}
 
-	return buildDoc(importPath, projectRoot, projectName, projectURL, etag, "#L%d", files)
+	browseURL := projectURL
+	if dir != "" {
+		browseURL = "https://github.com/" + userRepo + "/tree/" + treeName + "/" + dir[:len(dir)-1]
+	}
+
+	return buildDoc(importPath, projectRoot, projectName, projectURL, browseURL, etag, "#L%d", files)
 }

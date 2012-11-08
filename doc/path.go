@@ -15,7 +15,6 @@
 package doc
 
 import (
-	"net/url"
 	"path"
 	"regexp"
 	"strings"
@@ -23,7 +22,137 @@ import (
 	"unicode/utf8"
 )
 
-var validHost = regexp.MustCompile(`^[-A-Za-z0-9]+(?:\.[-A-Za-z0-9]+)+`)
+var standardPath = map[string]bool{
+	// go list -f '"{{.ImportPath}}": true,'  std | grep -v exp/
+	"archive/tar":         true,
+	"archive/zip":         true,
+	"bufio":               true,
+	"bytes":               true,
+	"compress/bzip2":      true,
+	"compress/flate":      true,
+	"compress/gzip":       true,
+	"compress/lzw":        true,
+	"compress/zlib":       true,
+	"container/heap":      true,
+	"container/list":      true,
+	"container/ring":      true,
+	"crypto":              true,
+	"crypto/aes":          true,
+	"crypto/cipher":       true,
+	"crypto/des":          true,
+	"crypto/dsa":          true,
+	"crypto/ecdsa":        true,
+	"crypto/elliptic":     true,
+	"crypto/hmac":         true,
+	"crypto/md5":          true,
+	"crypto/rand":         true,
+	"crypto/rc4":          true,
+	"crypto/rsa":          true,
+	"crypto/sha1":         true,
+	"crypto/sha256":       true,
+	"crypto/sha512":       true,
+	"crypto/subtle":       true,
+	"crypto/tls":          true,
+	"crypto/x509":         true,
+	"crypto/x509/pkix":    true,
+	"database/sql":        true,
+	"database/sql/driver": true,
+	"debug/dwarf":         true,
+	"debug/elf":           true,
+	"debug/gosym":         true,
+	"debug/macho":         true,
+	"debug/pe":            true,
+	"encoding/ascii85":    true,
+	"encoding/asn1":       true,
+	"encoding/base32":     true,
+	"encoding/base64":     true,
+	"encoding/binary":     true,
+	"encoding/csv":        true,
+	"encoding/gob":        true,
+	"encoding/hex":        true,
+	"encoding/json":       true,
+	"encoding/pem":        true,
+	"encoding/xml":        true,
+	"errors":              true,
+	"expvar":              true,
+	"flag":                true,
+	"fmt":                 true,
+	"go/ast":              true,
+	"go/build":            true,
+	"go/doc":              true,
+	"go/parser":           true,
+	"go/printer":          true,
+	"go/scanner":          true,
+	"go/token":            true,
+	"hash":                true,
+	"hash/adler32":        true,
+	"hash/crc32":          true,
+	"hash/crc64":          true,
+	"hash/fnv":            true,
+	"html":                true,
+	"html/template":       true,
+	"image":               true,
+	"image/color":         true,
+	"image/draw":          true,
+	"image/gif":           true,
+	"image/jpeg":          true,
+	"image/png":           true,
+	"index/suffixarray":   true,
+	"io":                  true,
+	"io/ioutil":           true,
+	"log":                 true,
+	"log/syslog":          true,
+	"math":                true,
+	"math/big":            true,
+	"math/cmplx":          true,
+	"math/rand":           true,
+	"mime":                true,
+	"mime/multipart":      true,
+	"net":                 true,
+	"net/http":            true,
+	"net/http/cgi":        true,
+	"net/http/fcgi":       true,
+	"net/http/httptest":   true,
+	"net/http/httputil":   true,
+	"net/http/pprof":      true,
+	"net/mail":            true,
+	"net/rpc":             true,
+	"net/rpc/jsonrpc":     true,
+	"net/smtp":            true,
+	"net/textproto":       true,
+	"net/url":             true,
+	"os":                  true,
+	"os/exec":             true,
+	"os/signal":           true,
+	"os/user":             true,
+	"path":                true,
+	"path/filepath":       true,
+	"reflect":             true,
+	"regexp":              true,
+	"regexp/syntax":       true,
+	"runtime":             true,
+	"runtime/cgo":         true,
+	"runtime/debug":       true,
+	"runtime/pprof":       true,
+	"sort":                true,
+	"strconv":             true,
+	"strings":             true,
+	"sync":                true,
+	"sync/atomic":         true,
+	"syscall":             true,
+	"testing":             true,
+	"testing/iotest":      true,
+	"testing/quick":       true,
+	"text/scanner":        true,
+	"text/tabwriter":      true,
+	"text/template":       true,
+	"text/template/parse": true,
+	"time":                true,
+	"unicode":             true,
+	"unicode/utf16":       true,
+	"unicode/utf8":        true,
+	"unsafe":              true,
+}
 
 var validTLD = map[string]bool{
 	// curl http://data.iana.org/TLD/tlds-alpha-by-domain.txt | sed  -e '/#/ d' -e 's/.*/"&": true,/' | tr [:upper:] [:lower:]
@@ -345,8 +474,10 @@ var validTLD = map[string]bool{
 	".zw":                     true,
 }
 
-// ValidRemotePath returns true if importPath is structurally valid for "go get".
-func ValidRemotePath(importPath string) bool {
+var validHost = regexp.MustCompile(`^[-A-Za-z0-9]+(?:\.[-A-Za-z0-9]+)+`)
+
+// IsValidRemotePath returns true if importPath is structurally valid for "go get".
+func IsValidRemotePath(importPath string) bool {
 
 	// See isbadimport in $GOROOT/src/cmd/gc/subr.c for rune checks.
 	for _, r := range importPath {
@@ -369,6 +500,14 @@ func ValidRemotePath(importPath string) bool {
 
 	parts := strings.Split(importPath, "/")
 
+	if len(parts) <= 1 {
+		// Although a remote path does not need to contain a "/", we require a
+		// slash to help distinguish a remote path from other queries. This is
+		// OK in practice because all known packages contain at least one "/"
+		// in the path.
+		return false
+	}
+
 	if !validTLD[path.Ext(parts[0])] {
 		return false
 	}
@@ -386,72 +525,28 @@ func ValidRemotePath(importPath string) bool {
 		}
 	}
 
-	if i := strings.Index(importPath, "/src/pkg/"); i > 0 && StandardPackages[importPath[i+len("/src/pkg/"):]] {
-		return false
-	}
-
 	return true
 }
 
-func importPathFromGoogleBrowse(m []string) string {
-	project := m[1]
-	dir := m[2]
-	if dir == "" {
-		dir = "/"
-	} else if dir[len(dir)-1] == '/' {
-		dir = dir[:len(dir)-1]
-	}
-	subrepo := ""
-	if len(m[3]) > 0 {
-		v, _ := url.ParseQuery(m[3][1:])
-		subrepo = v.Get("repo")
-		if len(subrepo) > 0 {
-			subrepo = "." + subrepo
+var goRepoPath = map[string]bool{"builtin": true}
+
+func init() {
+	for p := range standardPath {
+		for {
+			goRepoPath[p] = true
+			i := strings.LastIndex(p, "/")
+			if i < 0 {
+				break
+			}
+			p = p[:i]
 		}
 	}
-	if strings.HasPrefix(m[4], "#hg%2F") {
-		d, _ := url.QueryUnescape(m[4][len("#hg%2f"):])
-		if i := strings.IndexRune(d, '%'); i >= 0 {
-			d = d[:i]
-		}
-		dir = dir + "/" + d
-	}
-	return "code.google.com/p/" + project + subrepo + dir
 }
 
-var browsePatterns = []struct {
-	pat *regexp.Regexp
-	fn  func([]string) string
-}{
-	{
-		// Github source browser.
-		regexp.MustCompile(`^https?://(github\.com/[^/]+/[^/]+)(?:/tree/[^/]+(/.*))?$`),
-		func(m []string) string { return m[1] + m[2] },
-	},
-	{
-		// Bitbucket source borwser.
-		regexp.MustCompile(`^https?://(bitbucket\.org/[^/]+/[^/]+)(?:/src/[^/]+(/[^?]+)?)?`),
-		func(m []string) string { return m[1] + m[2] },
-	},
-	{
-		// Google Project Hosting source browser.
-		regexp.MustCompile(`^http:/+code\.google\.com/p/([^/]+)/source/browse(/[^?#]*)?(\?[^#]*)?(#.*)?$`),
-		importPathFromGoogleBrowse,
-	},
-	{
-		// Launchpad source browser.
-		regexp.MustCompile(`^https?:/+bazaar\.(launchpad\.net/.*)/files$`),
-		func(m []string) string { return m[1] },
-	},
+func IsGoRepoPath(importPath string) bool {
+	return goRepoPath[importPath]
 }
 
-// IsBrowserURL returns importPath and true if URL looks like a URL for a VCS
-// source browser.
-func IsBrowseURL(s string) (importPath string, ok bool) {
-	for _, c := range browsePatterns {
-		if m := c.pat.FindStringSubmatch(s); m != nil {
-			return c.fn(m), true
-		}
-	}
-	return "", false
+func IsValidPath(importPath string) bool {
+	return importPath == "C" || standardPath[importPath] || IsValidRemotePath(importPath)
 }

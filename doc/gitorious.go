@@ -84,5 +84,5 @@ func getGitoriousDoc(client *http.Client, m []string, savedEtag string) (*Packag
 		return nil, ErrPackageNotFound
 	}
 
-	return buildDoc(importPath, projectRoot, projectName, projectURL, etag, "#line%d", files)
+	return buildDoc(importPath, projectRoot, projectName, projectURL, "", etag, "#line%d", files)
 }

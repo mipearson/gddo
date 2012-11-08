@@ -37,55 +37,56 @@ func main() {
 	if len(os.Args) != 2 {
 		log.Fatal("Usage: go run print.go importPath")
 	}
-	dpkg, err := doc.Get(http.DefaultClient, os.Args[1], "")
+	pdoc, err := doc.Get(http.DefaultClient, os.Args[1], "")
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("ImportPath:  ", dpkg.ImportPath)
-	fmt.Println("ProjectRoot: ", dpkg.ProjectRoot)
-	fmt.Println("ProjectName: ", dpkg.ProjectName)
-	fmt.Println("ProjectURL:  ", dpkg.ProjectURL)
-	fmt.Println("Updated:     ", dpkg.Updated)
-	fmt.Println("Etag:        ", dpkg.Etag)
-	fmt.Println("Name:        ", dpkg.Name)
-	fmt.Println("IsCmd:       ", dpkg.IsCmd)
-	fmt.Println("Synopsis:    ", dpkg.Synopsis)
-	fmt.Println("Doc:         ", indent(dpkg.Doc, 14))
+	fmt.Println("ImportPath:  ", pdoc.ImportPath)
+	fmt.Println("ProjectRoot: ", pdoc.ProjectRoot)
+	fmt.Println("ProjectName: ", pdoc.ProjectName)
+	fmt.Println("ProjectURL:  ", pdoc.ProjectURL)
+	fmt.Println("BrowseURL :  ", pdoc.BrowseURL)
+	fmt.Println("Updated:     ", pdoc.Updated)
+	fmt.Println("Etag:        ", pdoc.Etag)
+	fmt.Println("Name:        ", pdoc.Name)
+	fmt.Println("IsCmd:       ", pdoc.IsCmd)
+	fmt.Println("Synopsis:    ", pdoc.Synopsis)
+	fmt.Println("Doc:         ", indent(pdoc.Doc, 14))
 	fmt.Println("Errors:")
-	for _, s := range dpkg.Errors {
+	for _, s := range pdoc.Errors {
 		fmt.Println("    ", s)
 	}
 	fmt.Println("Files:")
-	for _, f := range dpkg.Files {
+	for _, f := range pdoc.Files {
 		fmt.Println("    ", f)
 	}
 	fmt.Println("Imports:")
-	for _, i := range dpkg.Imports {
+	for _, i := range pdoc.Imports {
 		fmt.Println("    ", i)
 	}
 	fmt.Println("TestImports:")
-	for _, i := range dpkg.TestImports {
+	for _, i := range pdoc.TestImports {
 		fmt.Println("    ", i)
 	}
-	for _, c := range dpkg.Consts {
+	for _, c := range pdoc.Consts {
 		fmt.Println("Const:")
 		fmt.Println("    Decl:  ", indent(c.Decl.Text, 12))
 		fmt.Println("    Doc:   ", indent(c.Doc, 12))
 		fmt.Println("    URL:   ", c.URL)
 	}
-	for _, c := range dpkg.Vars {
+	for _, c := range pdoc.Vars {
 		fmt.Println("Var:")
 		fmt.Println("    Decl:  ", indent(c.Decl.Text, 12))
 		fmt.Println("    Doc:   ", indent(c.Doc, 12))
 		fmt.Println("    URL:   ", c.URL)
 	}
-	for _, f := range dpkg.Funcs {
+	for _, f := range pdoc.Funcs {
 		fmt.Println("Func:")
 		fmt.Println("    Decl:  ", indent(f.Decl.Text, 12))
 		fmt.Println("    Doc:   ", indent(f.Doc, 12))
 		fmt.Println("    URL:   ", f.URL)
 	}
-	for _, t := range dpkg.Types {
+	for _, t := range pdoc.Types {
 		fmt.Println("Type:")
 		fmt.Println("    Decl:  ", indent(t.Decl.Text, 12))
 		fmt.Println("    Doc:   ", indent(t.Doc, 12))

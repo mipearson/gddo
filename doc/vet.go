@@ -18,28 +18,30 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"strconv"
+	"strings"
 )
 
 // This list of deprecated exports is used to find code that has not been
 // updated for Go 1.
 var deprecatedExports = map[string][]string{
-	"bytes":         []string{"Add"},
-	"crypto/aes":    []string{"Cipher"},
-	"crypto/hmac":   []string{"NewSHA1", "NewSHA256"},
-	"crypto/rand":   []string{"Seed"},
-	"encoding/json": []string{"MarshalForHTML"},
-	"encoding/xml":  []string{"Marshaler", "NewParser", "Parser"},
-	"html":          []string{"NewTokenizer", "Parse"},
-	"image":         []string{"Color", "NRGBAColor", "RGBAColor"},
-	"io":            []string{"Copyn"},
-	"log":           []string{"Exitf"},
-	"math":          []string{"Fabs", "Fmax", "Fmod"},
-	"os":            []string{"Envs", "Error", "Getenverror", "NewError", "Time", "UnixSignal", "Wait"},
-	"reflect":       []string{"MapValue", "Typeof"},
-	"runtime":       []string{"UpdateMemStats"},
-	"strconv":       []string{"Atob", "Atof32", "Atof64", "AtofN", "Atoi64", "Atoui", "Atoui64", "Btoui64", "Ftoa64", "Itoa64", "Uitoa", "Uitoa64"},
-	"time":          []string{"LocalTime", "Nanoseconds", "NanosecondsToLocalTime", "Seconds", "SecondsToLocalTime", "SecondsToUTC"},
-	"unicode/utf8":  []string{"NewString"},
+	"bytes":         {"Add"},
+	"crypto/aes":    {"Cipher"},
+	"crypto/hmac":   {"NewSHA1", "NewSHA256"},
+	"crypto/rand":   {"Seed"},
+	"encoding/json": {"MarshalForHTML"},
+	"encoding/xml":  {"Marshaler", "NewParser", "Parser"},
+	"html":          {"NewTokenizer", "Parse"},
+	"image":         {"Color", "NRGBAColor", "RGBAColor"},
+	"io":            {"Copyn"},
+	"log":           {"Exitf"},
+	"math":          {"Fabs", "Fmax", "Fmod"},
+	"os":            {"Envs", "Error", "Getenverror", "NewError", "Time", "UnixSignal", "Wait"},
+	"reflect":       {"MapValue", "Typeof"},
+	"runtime":       {"UpdateMemStats"},
+	"strconv":       {"Atob", "Atof32", "Atof64", "AtofN", "Atoi64", "Atoui", "Atoui64", "Btoui64", "Ftoa64", "Itoa64", "Uitoa", "Uitoa64"},
+	"time":          {"LocalTime", "Nanoseconds", "NanosecondsToLocalTime", "Seconds", "SecondsToLocalTime", "SecondsToUTC"},
+	"unicode/utf8":  {"NewString"},
 }
 
 type vetVisitor struct {
@@ -69,19 +71,14 @@ func (v *vetVisitor) Visit(n ast.Node) ast.Visitor {
 func (b *builder) vetPackage() {
 	errors := make(map[string]token.Pos)
 	for fname, file := range b.ast.Files {
-
-		/*
-			for _, is := range file.Imports {
-				importPath, _ := strconv.Unquote(is.Path.Value)
-				if !StandardPackages[importPath] &&
-					!ValidRemotePath(importPath) &&
-					importPath != "C" &&
-					!strings.HasPrefix(importPath, "appengine") {
-					errors[fmt.Sprintf("Cannot import %q", importPath)] = is.Pos()
-				}
+		for _, is := range file.Imports {
+			importPath, _ := strconv.Unquote(is.Path.Value)
+			if !IsValidPath(importPath) &&
+				!strings.HasPrefix(importPath, "exp/") &&
+				!strings.HasPrefix(importPath, "appengine") {
+				errors[fmt.Sprintf("Unrecognized import path %q", importPath)] = is.Pos()
 			}
-		*/
-
+		}
 		v := vetVisitor{importPaths: b.fileImportPaths(fname), errors: errors}
 		ast.Walk(&v, file)
 	}

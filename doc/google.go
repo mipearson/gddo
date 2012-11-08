@@ -78,7 +78,9 @@ func getGoogleDoc(client *http.Client, m []string, savedEtag string) (*Package, 
 		return nil, err
 	}
 
-	return buildDoc(importPath, projectRoot, projectName, projectURL, etag, "#%d", files)
+	browseURL := "http://code.google.com/p/" + repo + "/source/browse/" + dir + query
+
+	return buildDoc(importPath, projectRoot, projectName, projectURL, browseURL, etag, "#%d", files)
 }
 
 func getStandardDoc(client *http.Client, importPath string, savedEtag string) (*Package, error) {
@@ -105,5 +107,7 @@ func getStandardDoc(client *http.Client, importPath string, savedEtag string) (*
 		return nil, err
 	}
 
-	return buildDoc(importPath, "", "Go", "https://code.google.com/p/go", etag, "#%d", files)
+	browseURL := "http://code.google.com/p/go/source/browse/src/pkg/" + importPath + "?name=release"
+
+	return buildDoc(importPath, "", "Go", "https://code.google.com/p/go", browseURL, etag, "#%d", files)
 }

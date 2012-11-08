@@ -1,0 +1,22 @@
+{{define "home.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {{template "CommonHead"}}
+  <title>GoDoc</title>
+</head>
+
+<body>
+  {{template "NavBar" "home"}}
+  <div class="container">
+    <p>&nbsp;
+    <div class="row">
+        <div class="well">
+          Search for Go packages by keyword or import path.</p>
+          {{template "SearchBox" ""}}
+        </div>
+    </div>
+  </div>
+</body>
+</html>
+{{end}}

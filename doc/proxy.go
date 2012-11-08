@@ -56,5 +56,5 @@ func getProxyDoc(client *http.Client, importPath, projectRoot, projectName, proj
 			browseURL: "http://gosourcefile.appspot.com/" + importPath + "/" + hdr.Name,
 			data:      b})
 	}
-	return buildDoc(importPath, projectRoot, projectName, projectURL, etag, "#L%d", files)
+	return buildDoc(importPath, projectRoot, projectName, projectURL, "", etag, "#L%d", files)
 }

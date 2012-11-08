@@ -1,0 +1,24 @@
+{{define "std.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {{template "CommonHead"}}
+  <title>Standard Packages - GoDoc</title>
+</head>
+
+<body>
+
+{{template "NavBar" ""}}
+
+<div class="container spacey">
+  <h1>Standard Packages</h1>
+  {{template "Pkgs" .pkgs}}
+  <div class="gpd-footer">
+    <p class="pull-right"><a href="#">Back to top</a></p>
+    View the official documentation at <a href="http://golang.org/pkg/">golang.org</a>.
+  </div>
+</div>
+
+</body>
+</html>
+{{end}}

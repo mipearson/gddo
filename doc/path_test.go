@@ -20,7 +20,6 @@ import (
 
 var goodImportPaths = []string{
 	"github.com/user/repo",
-	"camlistore.org",
 	"github.com/user/repo/src/pkg/compress/somethingelse",
 	"github.com/user/repo/src/compress/gzip",
 	"github.com/user/repo/src/pkg",
@@ -34,43 +33,17 @@ var badImportPaths = []string{
 	"github.com/user/repo/testdata/x",
 	"github.com/user/repo/_ignore/x",
 	"github.com/user/repo/.ignore/x",
-	"github.com/user/repo/src/pkg/compress/gzip",
 }
 
-func TestValidRemotePath(t *testing.T) {
+func TestIsValidRemotePath(t *testing.T) {
 	for _, importPath := range goodImportPaths {
-		if !ValidRemotePath(importPath) {
+		if !IsValidRemotePath(importPath) {
 			t.Errorf("isBadImportPath(%q) -> true, want false", importPath)
 		}
 	}
 	for _, importPath := range badImportPaths {
-		if ValidRemotePath(importPath) {
+		if IsValidRemotePath(importPath) {
 			t.Errorf("isBadImportPath(%q) -> false, want true", importPath)
-		}
-	}
-}
-
-var isBrowseURLTests = []struct {
-	s          string
-	importPath string
-	ok         bool
-}{
-	{"https://bitbucket.org/user/repo/src/bd0b661a263e/p1/p2?at=default", "bitbucket.org/user/repo/p1/p2", true},
-	{"https://bitbucket.org/user/repo/src", "bitbucket.org/user/repo", true},
-	{"https://bitbucket.org/user/repo", "bitbucket.org/user/repo", true},
-	{"https://github.com/user/repo", "github.com/user/repo", true},
-	{"https://github.com/user/repo/tree/master/p1", "github.com/user/repo/p1", true},
-}
-
-func TestIsBrowseURL(t *testing.T) {
-	for _, tt := range isBrowseURLTests {
-		importPath, ok := IsBrowseURL(tt.s)
-		if tt.ok {
-			if importPath != tt.importPath || ok != true {
-				t.Errorf("IsBrowseURL(%q) = %q, %v; want %q %v", tt.s, importPath, ok, tt.importPath, true)
-			}
-		} else if ok {
-			t.Errorf("IsBrowseURL(%q) = %q, %v; want _, false", tt.s, importPath, ok)
 		}
 	}
 }

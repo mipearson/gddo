@@ -1,0 +1,9 @@
+// Example configuration file. 
+
+package main
+
+import "github.com/garyburd/gopkgdoc/doc"
+
+func init() {
+    doc.SetGithubCredentials("github application id", "github application secret")
+}

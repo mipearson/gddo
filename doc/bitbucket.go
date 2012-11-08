@@ -70,5 +70,7 @@ func getBitbucketDoc(client *http.Client, m []string, savedEtag string) (*Packag
 		return nil, err
 	}
 
-	return buildDoc(importPath, projectRoot, projectName, projectURL, etag, "#cl-%d", files)
+	browseURL := "https://bitbucket.org/" + userRepo + "/src/" + tag + m[3]
+
+	return buildDoc(importPath, projectRoot, projectName, projectURL, browseURL, etag, "#cl-%d", files)
 }
