@@ -66,18 +66,29 @@ var (
 	redisServer      = flag.String("db-server", ":6379", "TCP address of Redis server.")
 	redisIdleTimeout = flag.Duration("db-idle-timeout", 250*time.Second, "Close Redis connections after remaining idle for this duration.")
 	redisLog         = flag.Bool("db-log", false, "Log database commands")
+	redisPassword    = flag.String("db-password", "", "Database password")
 )
 
-func dialDb() (redis.Conn, error) {
-	c, err := redis.Dial("tcp", *redisServer)
+func dialDb() (c redis.Conn, err error) {
+	defer func() {
+		if err != nil && c != nil {
+			c.Close()
+		}
+	}()
+	c, err = redis.Dial("tcp", *redisServer)
 	if err != nil {
-		return nil, err
+		return
 	}
 	if *redisLog {
 		l := log.New(os.Stderr, "", log.LstdFlags)
 		c = redis.NewLoggingConn(c, l, "")
 	}
-	return c, nil
+	if *redisPassword != "" {
+		if _, err = c.Do("AUTH", *redisPassword); err != nil {
+			return
+		}
+	}
+	return
 }
 
 // New creates a database configured from command line flags.
@@ -541,6 +552,28 @@ func (db *Database) Do(f func(*doc.Package, []Package) error) error {
 			return err
 		}
 		if err := f(&pdoc, pkgs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ProjectDo executes function f for each document in the database.
+func (db *Database) ProjectDo(f func(string, []Package) error) error {
+	c := db.Pool.Get()
+	keys, err := redis.Values(c.Do("KEYS", "index:project:*"))
+	c.Close()
+
+	if err != nil {
+		return err
+	}
+	for _, key := range keys {
+		projectRoot := string(key.([]byte)[len("index:project:"):])
+		paths, err := db.Project(projectRoot)
+		if err != nil {
+			return err
+		}
+		if err := f(projectRoot, paths); err != nil {
 			return err
 		}
 	}
