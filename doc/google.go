@@ -23,7 +23,7 @@ import (
 
 var (
 	googleRepoRe     = regexp.MustCompile(`id="checkoutcmd">(hg|git|svn)`)
-	googleRevisionRe = regexp.MustCompile(`<h2>[^<]*Revision *([^:]+):`)
+	googleRevisionRe = regexp.MustCompile(`<h2>(?:[^ ]+ - )?Revision *([^:]+):`)
 	googleEtagRe     = regexp.MustCompile(`^(hg|git|svn)-`)
 	googleFileRe     = regexp.MustCompile(`<li><a href="([^"/]+)"`)
 	googlePattern    = regexp.MustCompile(`^code\.google\.com/p/([a-z0-9\-]+)(\.[a-z0-9\-]+)?(/[a-z0-9A-Z_.\-/]+)?$`)

@@ -315,7 +315,8 @@ var (
 	getTimeout      = flag.Duration("get_timeout", 8*time.Second, "Timeout for updating package documentation.")
 	firstGetTimeout = flag.Duration("first_get_timeout", 5*time.Second, "Timeout for getting package documentation the first time.")
 	maxAge          = flag.Duration("max_age", 24*time.Hour, "Crawl documents older than this age.")
-	crawlInterval   = flag.Duration("crawl_interval", 20*time.Second, "Sleep for duration between document crawls.")
+	httpAddr        = flag.String("http", ":8080", "Listen for HTTP connections on this address")
+	crawlInterval   = flag.Duration("crawl_interval", 30*time.Second, "Sleep for duration between document crawls.")
 	db              *database.Database
 )
 
@@ -358,7 +359,7 @@ func main() {
 			AddGet("/C", web.RedirectHandler("http://golang.org/doc/articles/c_go_cgo.html", 301)).
 			AddGet("/<path:.*>", servePackage)))
 
-	listener, err := net.Listen("tcp", ":8080")
+	listener, err := net.Listen("tcp", *httpAddr)
 	if err != nil {
 		log.Fatal("Listen", err)
 		return
