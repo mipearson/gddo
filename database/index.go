@@ -31,23 +31,22 @@ func isTermSep(r rune) bool {
 	return unicode.IsSpace(r) || unicode.IsPunct(r) || unicode.IsSymbol(r)
 }
 
+func normalizeProjectRoot(projectRoot string) string {
+	if projectRoot == "" {
+		return "go"
+	}
+	return projectRoot
+}
+
 var httpPat = regexp.MustCompile(`https?://\S+`)
 
 func documentTerms(pdoc *doc.Package, rank float64) []string {
-
-	// Ignore empty directories.
-	if pdoc.Name == "" {
-		return nil
-	}
 
 	terms := make(map[string]bool)
 
 	// Project root
 
-	projectRoot := pdoc.ProjectRoot
-	if projectRoot == "" {
-		projectRoot = "go"
-	}
+	projectRoot := normalizeProjectRoot(pdoc.ProjectRoot)
 	terms["project:"+projectRoot] = true
 
 	// Imports

@@ -20,11 +20,11 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"github.com/garyburd/gopkgdoc/doc"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 )
 
@@ -33,11 +33,14 @@ func indent(s string, n int) string {
 	return strings.Replace(strings.TrimSpace(s), "\n", "\n"+space[:n], -1)
 }
 
+var etag = flag.String("etag", "", "Etag")
+
 func main() {
-	if len(os.Args) != 2 {
+	flag.Parse()
+	if len(flag.Args()) != 1 {
 		log.Fatal("Usage: go run print.go importPath")
 	}
-	pdoc, err := doc.Get(http.DefaultClient, os.Args[1], "")
+	pdoc, err := doc.Get(http.DefaultClient, flag.Args()[0], *etag)
 	if err != nil {
 		log.Fatal(err)
 	}

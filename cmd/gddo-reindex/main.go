@@ -32,14 +32,6 @@ func main() {
 	var n int
 	err = db.Do(func(pdoc *doc.Package, pkgs []database.Package) error {
 		n += 1
-		if pdoc.IsCmd && pdoc.Synopsis == "" && len(pkgs) == 0 {
-			log.Println("delete empty command", pdoc.ImportPath)
-			return db.Delete(pdoc.ImportPath)
-		}
-		if pdoc.Name == "" && len(pkgs) == 0 {
-			log.Println("delete empty dir", pdoc.ImportPath)
-			return db.Delete(pdoc.ImportPath)
-		}
 		return db.Put(pdoc)
 	})
 	if err != nil {

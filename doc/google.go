@@ -15,14 +15,19 @@
 package doc
 
 import (
+	"errors"
 	"net/http"
 	"regexp"
 	"strings"
 )
 
-var googleRepoRe = regexp.MustCompile(`id="checkoutcmd">(hg|git|svn)`)
-var googleFilePattern = regexp.MustCompile(`<li><a href="([^"/]+)"`)
-var googlePattern = regexp.MustCompile(`^code\.google\.com/p/([a-z0-9\-]+)(\.[a-z0-9\-]+)?(/[a-z0-9A-Z_.\-/]+)?$`)
+var (
+	googleRepoRe     = regexp.MustCompile(`id="checkoutcmd">(hg|git|svn)`)
+	googleRevisionRe = regexp.MustCompile(`<h2>[^<]*Revision *([^:]+):`)
+	googleEtagRe     = regexp.MustCompile(`^(hg|git|svn)-`)
+	googleFileRe     = regexp.MustCompile(`<li><a href="([^"/]+)"`)
+	googlePattern    = regexp.MustCompile(`^code\.google\.com/p/([a-z0-9\-]+)(\.[a-z0-9\-]+)?(/[a-z0-9A-Z_.\-/]+)?$`)
+)
 
 func getGoogleDoc(client *http.Client, m []string, savedEtag string) (*Package, error) {
 
@@ -39,23 +44,37 @@ func getGoogleDoc(client *http.Client, m []string, savedEtag string) (*Package, 
 
 	dir := normalizeDir(m[3])
 
-	// Scrape the HTML project page to find the VCS.
-	p, err := httpGetBytes(client, "http://code.google.com/p/"+repo+"/source/checkout")
-	if err != nil {
-		return nil, err
-	}
-
 	var vcs string
-	if m := googleRepoRe.FindSubmatch(p); m != nil {
-		vcs = string(m[1])
+
+	if m := googleEtagRe.FindStringSubmatch(savedEtag); m != nil {
+		vcs = m[1]
 	} else {
-		return nil, ErrPackageNotFound
+		// Scrape the HTML project page to find the VCS.
+		p, err := httpGetBytes(client, "http://code.google.com/p/"+repo+"/source/checkout")
+		if err != nil {
+			return nil, err
+		}
+		if m := googleRepoRe.FindSubmatch(p); m != nil {
+			vcs = string(m[1])
+		} else {
+			return nil, ErrPackageNotFound
+		}
 	}
 
-	// Scrape the repo browser to find individual Go files.
-	p, etag, err := httpGetBytesCompare(client, "http://"+subrepo+repo+".googlecode.com/"+vcs+"/"+dir, savedEtag)
+	// Scrape the repo browser to find the project revision and individual Go files.
+	p, err := httpGetBytes(client, "http://"+subrepo+repo+".googlecode.com/"+vcs+"/"+dir)
 	if err != nil {
 		return nil, err
+	}
+
+	var etag string
+	if m := googleRevisionRe.FindSubmatch(p); m == nil {
+		return nil, errors.New("Could not find revision for " + importPath)
+	} else {
+		etag = vcs + "-" + string(m[1])
+		if etag == savedEtag {
+			return nil, ErrPackageNotModified
+		}
 	}
 
 	var files []*source
@@ -63,7 +82,7 @@ func getGoogleDoc(client *http.Client, m []string, savedEtag string) (*Package, 
 	if subrepo != "" {
 		query = "?repo=" + subrepo[:len(subrepo)-1]
 	}
-	for _, m := range googleFilePattern.FindAllSubmatch(p, -1) {
+	for _, m := range googleFileRe.FindAllSubmatch(p, -1) {
 		fname := string(m[1])
 		if isDocFile(fname) {
 			files = append(files, &source{
@@ -85,14 +104,23 @@ func getGoogleDoc(client *http.Client, m []string, savedEtag string) (*Package, 
 
 func getStandardDoc(client *http.Client, importPath string, savedEtag string) (*Package, error) {
 
-	// Scrape the repo browser to find individual Go files.
-	p, etag, err := httpGetBytesCompare(client, "http://go.googlecode.com/hg-history/release/src/pkg/"+importPath+"/", savedEtag)
+	p, err := httpGetBytes(client, "http://go.googlecode.com/hg-history/release/src/pkg/"+importPath+"/")
 	if err != nil {
 		return nil, err
 	}
 
+	var etag string
+	if m := googleRevisionRe.FindSubmatch(p); m == nil {
+		return nil, errors.New("Could not find revision for " + importPath)
+	} else {
+		etag = string(m[1])
+		if etag == savedEtag {
+			return nil, ErrPackageNotModified
+		}
+	}
+
 	var files []*source
-	for _, m := range googleFilePattern.FindAllSubmatch(p, -1) {
+	for _, m := range googleFileRe.FindAllSubmatch(p, -1) {
 		fname := strings.Split(string(m[1]), "?")[0]
 		if isDocFile(fname) {
 			files = append(files, &source{

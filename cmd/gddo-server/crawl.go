@@ -83,15 +83,10 @@ func crawlDoc(source string, path string, pdoc *doc.Package, hasSubdirs bool) (*
 			return nil, err
 		}
 
-		if pdoc != nil && !hasSubdirs {
-			if pdoc.Name == "" {
-				// Handle directories with no child directories as not found.
-				pdoc = nil
-				action = del
-			} else if pdoc.IsCmd && pdoc.Synopsis == "" {
-				///Don't store commands with no documentation and no children.
-				action = del
-			}
+		if pdoc != nil && !hasSubdirs && pdoc.Name == "" {
+			// Handle directories with no child directories as not found.
+			pdoc = nil
+			action = del
 		}
 	}
 
@@ -103,7 +98,7 @@ func crawlDoc(source string, path string, pdoc *doc.Package, hasSubdirs bool) (*
 		}
 	case touch:
 		log.Printf("%s touch  %q %q %dms", source, path, etag, d)
-		if err := db.TouchLastCrawl(path); err != nil {
+		if err := db.TouchLastCrawl(pdoc); err != nil {
 			log.Printf("ERROR db.TouchLastCrawl(%q): %v", path, err)
 		}
 	case del:
@@ -130,37 +125,11 @@ func crawl() {
 		if sleep > 0 {
 			time.Sleep(sleep)
 		}
-		pdocNew, err := crawlDoc("crawl", pdoc.ImportPath, pdoc, len(pkgs) > 0)
+		_, err = crawlDoc("crawl", pdoc.ImportPath, pdoc, len(pkgs) > 0)
 		if err != nil {
-			// Touch to avoid repating errors.
-			if err := db.TouchLastCrawl(pdoc.ImportPath); err != nil {
+			// Touch package so that crawl advances to a differnt package.
+			if err := db.TouchLastCrawl(pdoc); err != nil {
 				log.Printf("ERROR db.TouchLastCrawl(%q): %v", pdoc.ImportPath, err)
-			}
-		} else if pdocNew == nil {
-			// nothing for now
-			log.Println("Crawl not found", pdoc.ImportPath)
-		} else if strings.HasPrefix(pdoc.ImportPath, "github.com/") && pdoc.Etag == pdocNew.Etag {
-			// To do:
-			//  handle other VCSs
-			//  fast touch on crawl from web request.
-			pkgs, err := db.Project(pdoc.ProjectRoot)
-			if err != nil {
-				continue
-			}
-			for _, pkg := range pkgs {
-				if pkg.Path == pdoc.ImportPath {
-					continue
-				}
-				pdocNew, _, _, err := db.Get(pkg.Path)
-				if err != nil || pdocNew == nil {
-					continue
-				}
-				if pdocNew.Etag == pdoc.Etag {
-					log.Printf("fast  touch  %q %q", pdocNew.ImportPath, pdocNew.Etag)
-					if err := db.TouchLastCrawl(pdocNew.ImportPath); err != nil {
-						log.Printf("ERROR db.TouchLastCrawl(%q): %v", pdoc.ImportPath, err)
-					}
-				}
 			}
 		}
 	}

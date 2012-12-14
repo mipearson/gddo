@@ -21,6 +21,8 @@
 //      synopsis: synopsis
 //      glob: snappy compressed gob encoded doc.Package
 //      rank: document search rank
+//      etag:
+//      kind: p=package, c=command, d=directory with no go files
 // index:<term> set: package ids for given search term
 // index:import:<path> set: packages with import path
 // index:project:<root> set: packges in project with root
@@ -121,7 +123,9 @@ var putScript = redis.NewScript(0, `
     local rank = ARGV[3]
     local gob = ARGV[4]
     local terms = ARGV[5]
-    local crawl = ARGV[6]
+    local etag = ARGV[6]
+    local kind = ARGV[7]
+    local crawl = ARGV[8]
 
     local id = redis.call('GET', 'id:' .. path)
     if not id then
@@ -151,18 +155,13 @@ var putScript = redis.NewScript(0, `
         redis.call('ZADD', 'crawl', crawl, id)
     end
 
-    return redis.call('HMSET', 'pkg:' .. id, 'path', path, 'synopsis', synopsis, 'rank', rank, 'gob', gob, 'terms', terms)
+    return redis.call('HMSET', 'pkg:' .. id, 'path', path, 'synopsis', synopsis, 'rank', rank, 'gob', gob, 'terms', terms, 'etag', etag, 'kind', kind)
 `)
 
 // Put adds the package documentation to the database.
 func (db *Database) Put(pdoc *doc.Package) error {
 	c := db.Pool.Get()
 	defer c.Close()
-
-	projectRoot := pdoc.ProjectRoot
-	if projectRoot == "" {
-		projectRoot = "go"
-	}
 
 	rank := documentRank(pdoc)
 	terms := documentTerms(pdoc, rank)
@@ -193,24 +192,42 @@ func (db *Database) Put(pdoc *doc.Package) error {
 		return err
 	}
 
-	_, err = putScript.Do(c, pdoc.ImportPath, pdoc.Synopsis, rank, gobBytes, strings.Join(terms, " "), pdoc.Updated.Unix())
+	kind := "p"
+	switch {
+	case pdoc.Name == "":
+		kind = "d"
+	case pdoc.IsCmd:
+		kind = "c"
+	}
+
+	_, err = putScript.Do(c, pdoc.ImportPath, pdoc.Synopsis, rank, gobBytes, strings.Join(terms, " "), pdoc.Etag, kind, pdoc.Updated.Unix())
 	return err
 }
 
 var touchScript = redis.NewScript(0, `
-    local path = ARGV[1]
-    local crawl = ARGV[2]
+    local root = ARGV[1]
+    local path = ARGV[2]
+    local etag = ARGV[3]
+    local crawl = ARGV[4]
 
     local id = redis.call('GET', 'id:' .. path)
     if id then
         redis.call('ZADD', 'crawl', crawl, id)
     end
+
+    local pkgs = redis.call('SORT', 'index:project:' .. root, 'GET', '#',  'GET', 'pkg:*->etag')
+
+    for i=1,#pkgs,2 do
+        if pkgs[i+1] == etag and pkgs[i] ~= id then
+            redis.call('ZADD', 'crawl', crawl, pkgs[i])
+        end
+    end
 `)
 
-func (db *Database) TouchLastCrawl(path string) error {
+func (db *Database) TouchLastCrawl(pdoc *doc.Package) error {
 	c := db.Pool.Get()
 	defer c.Close()
-	_, err := touchScript.Do(c, path, time.Now().Unix())
+	_, err := touchScript.Do(c, normalizeProjectRoot(pdoc.ProjectRoot), pdoc.ImportPath, pdoc.Etag, time.Now().Unix())
 	return err
 }
 
@@ -283,7 +300,7 @@ func (db *Database) getDoc(c redis.Conn, path string) (*doc.Package, time.Time, 
 var getSubdirsScript = redis.NewScript(0, `
     local reply
     for i = 1,#ARGV do
-        reply = redis.call('SORT', 'index:project:' .. ARGV[i], 'ALPHA', 'BY', 'pkg:*->path', 'GET', 'pkg:*->path', 'GET', 'pkg:*->synopsis')
+        reply = redis.call('SORT', 'index:project:' .. ARGV[i], 'ALPHA', 'BY', 'pkg:*->path', 'GET', 'pkg:*->path', 'GET', 'pkg:*->synopsis', 'GET', 'pkg:*->kind')
         if #reply > 0 then
             break
         end
@@ -324,11 +341,12 @@ func (db *Database) getSubdirs(c redis.Conn, path string, pdoc *doc.Package) ([]
 
 	for len(values) > 0 {
 		var pkg Package
-		values, err = redis.Scan(values, &pkg.Path, &pkg.Synopsis)
+		var kind string
+		values, err = redis.Scan(values, &pkg.Path, &pkg.Synopsis, &kind)
 		if err != nil {
 			return nil, err
 		}
-		if strings.HasPrefix(pkg.Path, prefix) {
+		if (kind == "p" || kind == "c") && strings.HasPrefix(pkg.Path, prefix) {
 			subdirs = append(subdirs, pkg)
 		}
 	}
@@ -392,9 +410,13 @@ func packages(reply interface{}) ([]Package, error) {
 	result := make([]Package, 0, len(values)/2)
 	for len(values) > 0 {
 		var pkg Package
-		values, err = redis.Scan(values, &pkg.Path, &pkg.Synopsis)
+		var kind string
+		values, err = redis.Scan(values, &pkg.Path, &pkg.Synopsis, &kind)
 		if err != nil {
 			return nil, err
+		}
+		if kind != "p" && kind != "c" {
+			continue
 		}
 		if pkg.Path == "C" {
 			pkg.Synopsis = "Package C is a \"pseudo-package\" used to access the C namespace from a cgo source file."
@@ -404,37 +426,26 @@ func packages(reply interface{}) ([]Package, error) {
 	return result, nil
 }
 
-func (db *Database) GoIndex() ([]Package, error) {
+func (db *Database) getPackages(key string) ([]Package, error) {
 	c := db.Pool.Get()
 	defer c.Close()
-	reply, err := c.Do("SORT", "index:project:go", "ALPHA", "BY", "pkg:*->path", "GET", "pkg:*->path", "GET", "pkg:*->synopsis")
+	reply, err := c.Do("SORT", key, "ALPHA", "BY", "pkg:*->path", "GET", "pkg:*->path", "GET", "pkg:*->synopsis", "GET", "pkg:*->kind")
 	if err != nil {
 		return nil, err
 	}
 	return packages(reply)
+}
+
+func (db *Database) GoIndex() ([]Package, error) {
+	return db.getPackages("index:project:go")
 }
 
 func (db *Database) Index() ([]Package, error) {
-	c := db.Pool.Get()
-	defer c.Close()
-	reply, err := c.Do("SORT", "index:all:", "ALPHA", "BY", "pkg:*->path", "GET", "pkg:*->path", "GET", "pkg:*->synopsis")
-	if err != nil {
-		return nil, err
-	}
-	return packages(reply)
+	return db.getPackages("index:all:")
 }
 
 func (db *Database) Project(projectRoot string) ([]Package, error) {
-	c := db.Pool.Get()
-	defer c.Close()
-	if projectRoot == "" {
-		projectRoot = "go"
-	}
-	reply, err := c.Do("SORT", "index:project:"+projectRoot, "ALPHA", "BY", "pkg:*->path", "GET", "pkg:*->path", "GET", "pkg:*->synopsis")
-	if err != nil {
-		return nil, err
-	}
-	return packages(reply)
+	return db.getPackages("index:project:" + normalizeProjectRoot(projectRoot))
 }
 
 var importsScript = redis.NewScript(0, `
@@ -475,13 +486,7 @@ func (db *Database) ImporterCount(path string) (int, error) {
 }
 
 func (db *Database) Importers(path string) ([]Package, error) {
-	c := db.Pool.Get()
-	defer c.Close()
-	reply, err := c.Do("SORT", "index:import:"+path, "ALPHA", "BY", "pkg:*->path", "GET", "pkg:*->path", "GET", "pkg:*->synopsis")
-	if err != nil {
-		return nil, err
-	}
-	return packages(reply)
+	return db.getPackages("index:import:" + path)
 }
 
 func (db *Database) Query(q string) ([]Package, error) {
@@ -502,7 +507,7 @@ func (db *Database) Query(q string) ([]Package, error) {
 		args = append(args, "index:"+term)
 	}
 	c.Send("SINTERSTORE", args...)
-	c.Send("SORT", id, "DESC", "BY", "pkg:*->rank", "GET", "pkg:*->path", "GET", "pkg:*->synopsis")
+	c.Send("SORT", id, "DESC", "BY", "pkg:*->rank", "GET", "pkg:*->path", "GET", "pkg:*->synopsis", "GET", "pkg:*->kind")
 	c.Send("DEL", id)
 	values, err := redis.Values(c.Do(""))
 	if err != nil {
