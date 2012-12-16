@@ -27,6 +27,7 @@
 // index:import:<path> set: packages with import path
 // index:project:<root> set: packges in project with root
 // crawl zset: package id, unix type of last crawl
+// block set of paths to block
 
 // Package database manages storage for GoPkgDoc.
 package database
@@ -250,7 +251,7 @@ var getDocScript = redis.NewScript(0, `
     local id
     if path == '-' then
         local r = redis.call('ZRANGE', 'crawl', 0, 0)
-        if not r then
+        if not r or #r == 0 then
             return false
         end
         id = r[1]
@@ -412,7 +413,7 @@ func (db *Database) Delete(path string) error {
 	return err
 }
 
-func packages(reply interface{}) ([]Package, error) {
+func packages(reply interface{}, all bool) ([]Package, error) {
 	values, err := redis.Values(reply, nil)
 	if err != nil {
 		return nil, err
@@ -425,7 +426,7 @@ func packages(reply interface{}) ([]Package, error) {
 		if err != nil {
 			return nil, err
 		}
-		if kind != "p" && kind != "c" {
+		if !all && kind == "d" {
 			continue
 		}
 		if pkg.Path == "C" {
@@ -436,55 +437,58 @@ func packages(reply interface{}) ([]Package, error) {
 	return result, nil
 }
 
-func (db *Database) getPackages(key string) ([]Package, error) {
+func (db *Database) getPackages(key string, all bool) ([]Package, error) {
 	c := db.Pool.Get()
 	defer c.Close()
 	reply, err := c.Do("SORT", key, "ALPHA", "BY", "pkg:*->path", "GET", "pkg:*->path", "GET", "pkg:*->synopsis", "GET", "pkg:*->kind")
 	if err != nil {
 		return nil, err
 	}
-	return packages(reply)
+	return packages(reply, all)
 }
 
 func (db *Database) GoIndex() ([]Package, error) {
-	return db.getPackages("index:project:go")
+	return db.getPackages("index:project:go", false)
 }
 
 func (db *Database) Index() ([]Package, error) {
-	return db.getPackages("index:all:")
+	return db.getPackages("index:all:", false)
 }
 
 func (db *Database) Project(projectRoot string) ([]Package, error) {
-	return db.getPackages("index:project:" + normalizeProjectRoot(projectRoot))
+	return db.getPackages("index:project:"+normalizeProjectRoot(projectRoot), true)
 }
 
-var importsScript = redis.NewScript(0, `
+var packagesScript = redis.NewScript(0, `
     local result = {}
     for i = 1,#ARGV do
         local path = ARGV[i]
         local synopsis = ''
+        local kind = 'u'
         local id = redis.call('GET', 'id:' .. path)
         if id then
             synopsis = redis.call('HGET', 'pkg:' .. id, 'synopsis')
+            kind = redis.call('HGET', 'pkg:' .. id, 'kind')
         end
         result[#result+1] = path
         result[#result+1] = synopsis
+        result[#result+1] = kind
     end
     return result
 `)
 
-func (db *Database) Imports(pdoc *doc.Package) ([]Package, error) {
+func (db *Database) Packages(paths []string) ([]Package, error) {
 	var args []interface{}
-	for _, p := range pdoc.Imports {
+	for _, p := range paths {
 		args = append(args, p)
 	}
 	c := db.Pool.Get()
 	defer c.Close()
-	reply, err := importsScript.Do(c, args...)
+	reply, err := packagesScript.Do(c, args...)
 	if err != nil {
 		return nil, err
 	}
-	pkgs, err := packages(reply)
+	pkgs, err := packages(reply, false)
 	sort.Sort(byPath(pkgs))
 	return pkgs, err
 }
@@ -496,7 +500,46 @@ func (db *Database) ImporterCount(path string) (int, error) {
 }
 
 func (db *Database) Importers(path string) ([]Package, error) {
-	return db.getPackages("index:import:" + path)
+	return db.getPackages("index:import:"+path, false)
+}
+
+func (db *Database) Block(root string) error {
+	c := db.Pool.Get()
+	defer c.Close()
+	if _, err := c.Do("SADD", "block", root); err != nil {
+		return err
+	}
+	keys, err := redis.Values(c.Do("KEYS", "id:"+root+"*"))
+	if err != nil {
+		return err
+	}
+	for _, key := range keys {
+		path := string(key.([]byte)[len("id:"):])
+		if path == root || strings.HasPrefix(path, root) && path[len(root)] == '/' {
+			if _, err := deleteScript.Do(c, path); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+var isBlockedScript = redis.NewScript(0, `
+    local path = ''
+    for s in string.gmatch(ARGV[1], '[^/]+') do
+        path = path .. s
+        if redis.call('SISMEMBER', 'block', path) == 1 then
+            return 1
+        end
+        path = path .. '/'
+    end
+    return  0
+`)
+
+func (db *Database) IsBlocked(path string) (bool, error) {
+	c := db.Pool.Get()
+	defer c.Close()
+	return redis.Bool(isBlockedScript.Do(c, path))
 }
 
 func (db *Database) Query(q string) ([]Package, error) {
@@ -523,7 +566,7 @@ func (db *Database) Query(q string) ([]Package, error) {
 	if err != nil {
 		return nil, err
 	}
-	pkgs, err := packages(values[1])
+	pkgs, err := packages(values[1], false)
 
 	// Move exact match on standard package to the top of the list.
 	for i, pkg := range pkgs {
@@ -574,21 +617,31 @@ func (db *Database) Do(f func(*doc.Package, []Package) error) error {
 }
 
 // ProjectDo executes function f for each document in the database.
-func (db *Database) ProjectDo(f func(string, []Package) error) error {
+func (db *Database) ProjectDo(f func(string, []*doc.Package) error) error {
 	c := db.Pool.Get()
-	keys, err := redis.Values(c.Do("KEYS", "index:project:*"))
-	c.Close()
+	defer c.Close()
 
+	keys, err := redis.Values(c.Do("KEYS", "index:project:*"))
 	if err != nil {
 		return err
 	}
+
+	var pdocs []*doc.Package
 	for _, key := range keys {
 		projectRoot := string(key.([]byte)[len("index:project:"):])
-		paths, err := db.Project(projectRoot)
+		pkgs, err := db.Project(projectRoot)
 		if err != nil {
 			return err
 		}
-		if err := f(projectRoot, paths); err != nil {
+		pdocs = pdocs[:0]
+		for _, pkg := range pkgs {
+			pdoc, _, err := db.getDoc(c, pkg.Path)
+			if err != nil {
+				return err
+			}
+			pdocs = append(pdocs, pdoc)
+		}
+		if err := f(projectRoot, pdocs); err != nil {
 			return err
 		}
 	}

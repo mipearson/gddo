@@ -33,14 +33,25 @@ func indent(s string, n int) string {
 	return strings.Replace(strings.TrimSpace(s), "\n", "\n"+space[:n], -1)
 }
 
-var etag = flag.String("etag", "", "Etag")
+var (
+	etag  = flag.String("etag", "", "Etag")
+	local = flag.Bool("local", false, "Get package from local directory.")
+)
 
 func main() {
 	flag.Parse()
 	if len(flag.Args()) != 1 {
 		log.Fatal("Usage: go run print.go importPath")
 	}
-	pdoc, err := doc.Get(http.DefaultClient, flag.Args()[0], *etag)
+	var (
+		pdoc *doc.Package
+		err  error
+	)
+	if *local {
+		pdoc, err = doc.GetDir(flag.Args()[0])
+	} else {
+		pdoc, err = doc.Get(http.DefaultClient, flag.Args()[0], *etag)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -56,6 +67,7 @@ func main() {
 	fmt.Println("Synopsis:    ", pdoc.Synopsis)
 	fmt.Println("Doc:         ", indent(pdoc.Doc, 14))
 	fmt.Println("Errors:")
+	fmt.Println("Examples:", len(pdoc.Examples))
 	for _, s := range pdoc.Errors {
 		fmt.Println("    ", s)
 	}
@@ -88,23 +100,27 @@ func main() {
 		fmt.Println("    Decl:  ", indent(f.Decl.Text, 12))
 		fmt.Println("    Doc:   ", indent(f.Doc, 12))
 		fmt.Println("    URL:   ", f.URL)
+		fmt.Println("    Examples:", len(f.Examples))
 	}
 	for _, t := range pdoc.Types {
 		fmt.Println("Type:")
 		fmt.Println("    Decl:  ", indent(t.Decl.Text, 12))
 		fmt.Println("    Doc:   ", indent(t.Doc, 12))
 		fmt.Println("    URL:   ", t.URL)
+		fmt.Println("    Examples:", len(t.Examples))
 		for _, f := range t.Funcs {
 			fmt.Println("    Func:")
 			fmt.Println("        Decl:  ", indent(f.Decl.Text, 16))
 			fmt.Println("        Doc:   ", indent(f.Doc, 16))
 			fmt.Println("        URL:   ", f.URL)
+			fmt.Println("        Examples:", len(f.Examples))
 		}
 		for _, m := range t.Methods {
 			fmt.Println("    Method:")
 			fmt.Println("        Decl:  ", indent(m.Decl.Text, 16))
 			fmt.Println("        Doc:   ", indent(m.Doc, 16))
 			fmt.Println("        URL:   ", m.URL)
+			fmt.Println("        Examples:", len(m.Examples))
 		}
 	}
 }

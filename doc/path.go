@@ -18,12 +18,11 @@ import (
 	"path"
 	"regexp"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 )
 
 var standardPath = map[string]bool{
 	// go list -f '"{{.ImportPath}}": true,'  std | grep -v exp/
+	"go/types":            true,
 	"archive/tar":         true,
 	"archive/zip":         true,
 	"bufio":               true,
@@ -474,37 +473,16 @@ var validTLD = map[string]bool{
 	".zw":                     true,
 }
 
-var validHost = regexp.MustCompile(`^[-A-Za-z0-9]+(?:\.[-A-Za-z0-9]+)+`)
+var validHost = regexp.MustCompile(`^[-a-z0-9]+(?:\.[-a-z0-9]+)+$`)
+var validPathElement = regexp.MustCompile(`^[-A-Za-z0-9~+][-A-Za-z0-9_.]*$`)
 
 // IsValidRemotePath returns true if importPath is structurally valid for "go get".
 func IsValidRemotePath(importPath string) bool {
 
-	// See isbadimport in $GOROOT/src/cmd/gc/subr.c for rune checks.
-	for _, r := range importPath {
-		if r == utf8.RuneError {
-			return false
-		}
-		if r < 0x20 || r == 0x7f {
-			return false
-		}
-		if r == '\\' {
-			return false
-		}
-		if unicode.IsSpace(r) {
-			return false
-		}
-		if strings.IndexRune("!\"#$%&'()*,:;<=>?[]^`{|}", r) >= 0 {
-			return false
-		}
-	}
-
 	parts := strings.Split(importPath, "/")
 
 	if len(parts) <= 1 {
-		// Although a remote path does not need to contain a "/", we require a
-		// slash to help distinguish a remote path from other queries. This is
-		// OK in practice because all known packages contain at least one "/"
-		// in the path.
+		// Import path must contain at least one "/".
 		return false
 	}
 
@@ -517,10 +495,7 @@ func IsValidRemotePath(importPath string) bool {
 	}
 
 	for _, part := range parts[1:] {
-		if len(part) == 0 ||
-			part[0] == '.' ||
-			part[0] == '_' ||
-			part == "testdata" {
+		if !validPathElement.MatchString(part) || part == "testdata" {
 			return false
 		}
 	}

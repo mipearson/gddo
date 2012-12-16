@@ -117,14 +117,15 @@ Loop:
 
 // builder holds the state used when building the documentation.
 type builder struct {
+	lineFmt string
+	pkg     *Package
+
+	srcs        map[string]*source
 	fset        *token.FileSet
-	lineFmt     string
 	examples    []*doc.Example
 	buf         bytes.Buffer // scratch space for printNode method.
 	importPaths map[string]map[string]string
 	ast         *ast.Package
-	srcs        map[string]*source
-	pkg         *Package
 }
 
 // fileImportPaths returns a package name to import path map for the file with
@@ -554,6 +555,8 @@ type Package struct {
 	// Package examples
 	Examples []*Example
 
+	Bugs []string
+
 	// Source.
 	BrowseURL string
 	Files     []*File
@@ -568,28 +571,18 @@ type Package struct {
 	TestImports []string
 }
 
-func buildDoc(importPath, projectRoot, projectName, projectURL, browseURL, etag string, lineFmt string, srcs []*source) (*Package, error) {
+func (b *builder) build(srcs []*source) (*Package, error) {
 
-	b := &builder{
-		lineFmt:     lineFmt,
-		fset:        token.NewFileSet(),
-		importPaths: make(map[string]map[string]string),
-		srcs:        make(map[string]*source),
-		pkg: &Package{
-			ImportPath:  importPath,
-			ProjectName: projectName,
-			ProjectRoot: projectRoot,
-			ProjectURL:  projectURL,
-			BrowseURL:   browseURL,
-			Etag:        etag,
-			Updated:     time.Now(),
-		},
-	}
+	b.pkg.Updated = time.Now().UTC()
 
 	if len(srcs) == 0 {
 		return b.pkg, nil
 	}
 
+	b.fset = token.NewFileSet()
+	b.importPaths = make(map[string]map[string]string)
+
+	b.srcs = make(map[string]*source)
 	for _, src := range srcs {
 		b.srcs[src.name] = src
 	}
@@ -655,7 +648,7 @@ func buildDoc(importPath, projectRoot, projectName, projectURL, browseURL, etag 
 	b.vetPackage()
 
 	mode := doc.Mode(0)
-	if importPath == "builtin" {
+	if b.pkg.ImportPath == "builtin" {
 		mode |= doc.AllDecls
 	}
 
@@ -672,6 +665,8 @@ func buildDoc(importPath, projectRoot, projectName, projectURL, browseURL, etag 
 	b.pkg.Funcs = b.funcs(pdoc.Funcs)
 	b.pkg.Types = b.types(pdoc.Types)
 	b.pkg.Vars = b.values(pdoc.Vars)
+
+	b.pkg.Bugs = pdoc.Bugs
 
 	b.pkg.Imports = pkg.Imports
 	b.pkg.TestImports = pkg.TestImports

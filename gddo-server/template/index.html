@@ -1,0 +1,18 @@
+{{define "index.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {{template "CommonHead"}}
+  <title>Index - GoDoc</title>
+</head>
+<body>
+<div class="container spacey">
+{{template "SiteNav" "index"}}
+<h1>Index</h1>
+{{template "Pkgs" .pkgs}}
+<p>Number of packages: {{len .pkgs}}. A package must be "go gettable" to be included in the index. 
+</div>
+{{template "Footer"}}
+</body>
+</html>
+{{end}}

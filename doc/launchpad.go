@@ -26,38 +26,26 @@ import (
 	"strings"
 )
 
-var launchpadPattern = regexp.MustCompile(`^launchpad\.net/(([a-z0-9A-Z_.\-]+)(/[a-z0-9A-Z_.\-]+)?|~[a-z0-9A-Z_.\-]+/(\+junk|[a-z0-9A-Z_.\-]+)/[a-z0-9A-Z_.\-]+)(/[a-z0-9A-Z_.\-/]+)*$`)
+var launchpadPattern = regexp.MustCompile(`^launchpad\.net/(?P<repo>(?P<project>[a-z0-9A-Z_.\-]+)(?P<series>/[a-z0-9A-Z_.\-]+)?|~[a-z0-9A-Z_.\-]+/(\+junk|[a-z0-9A-Z_.\-]+)/[a-z0-9A-Z_.\-]+)(?P<dir>/[a-z0-9A-Z_.\-/]+)*$`)
 
-func getLaunchpadDoc(client *http.Client, m []string, savedEtag string) (*Package, error) {
+func getLaunchpadDoc(client *http.Client, match map[string]string, savedEtag string) (*Package, error) {
 
-	if m[2] != "" && m[3] != "" {
-		rc, err := httpGet(client, "https://code.launchpad.net/"+m[2]+m[3]+"/.bzr/branch-format")
-		switch err {
-		case nil:
-			// The structure of the import path is launchpad.net/{project}/{series}/{dir}.
-			// No fix up is needed.
+	if match["project"] != "" && match["series"] != "" {
+		rc, err := httpGet(client, expand("https://code.launchpad.net/{project}{series}/.bzr/branch-format", match))
+		switch {
+		case err == nil:
 			rc.Close()
-		case ErrPackageNotFound:
+			// The structure of the import path is launchpad.net/{root}/{dir}.
+		case IsNotFound(err):
 			// The structure of the import path is is launchpad.net/{project}/{dir}.
-			m[1] = m[2]
-			m[5] = m[3] + m[5]
+			match["repo"] = match["project"]
+			match["dir"] = expand("{series}{dir}", match)
 		default:
 			return nil, err
 		}
 	}
 
-	importPath := m[0]
-	projectName := m[2]
-	if projectName == "" {
-		projectName = m[1]
-	}
-	projectRoot := "launchpad.net/" + projectName
-	projectURL := "https://launchpad.net/" + projectName + "/"
-
-	repo := m[1]
-	dir := normalizeDir(m[5])
-
-	p, etag, err := httpGetBytesCompare(client, "https://bazaar.launchpad.net/+branch/"+repo+"/tarball", savedEtag)
+	p, etag, err := httpGetBytesCompare(client, expand("https://bazaar.launchpad.net/+branch/{repo}/tarball", match), savedEtag)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +59,7 @@ func getLaunchpadDoc(client *http.Client, m []string, savedEtag string) (*Packag
 	tr := tar.NewReader(gzr)
 
 	inTree := false
-	prefix := "+branch/" + repo + "/"
+	dirPrefix := expand("+branch/{repo}{dir}/", match)
 	var files []*source
 	for {
 		hdr, err := tr.Next()
@@ -81,36 +69,37 @@ func getLaunchpadDoc(client *http.Client, m []string, savedEtag string) (*Packag
 		if err != nil {
 			return nil, err
 		}
-		if !strings.HasPrefix(hdr.Name, prefix) {
-			continue
-		}
-		name := hdr.Name[len(prefix):]
-		if !isDocFile(name) ||
-			!strings.HasPrefix(name, dir) {
+		if !strings.HasPrefix(hdr.Name, dirPrefix) ||
+			!isDocFile(hdr.Name) {
 			continue
 		}
 		inTree = true
-		if d, f := path.Split(hdr.Name[len(prefix):]); d == dir {
+		if d, f := path.Split(hdr.Name); d == dirPrefix {
 			b, err := ioutil.ReadAll(tr)
 			if err != nil {
 				return nil, err
 			}
 			files = append(files, &source{
 				name:      f,
-				browseURL: "http://bazaar.launchpad.net/+branch/" + repo + "/view/head:/" + hdr.Name[len(prefix):],
+				browseURL: expand("http://bazaar.launchpad.net/+branch/{repo}/view/head:{dir}/{0}", match, f),
 				data:      b})
 		}
 	}
 
 	if !inTree {
-		return nil, ErrPackageNotFound
+		return nil, NotFoundError{"Directory tree does not contain Go files."}
 	}
 
-	d := dir
-	if len(d) > 0 {
-		d = d[:len(d)-1]
+	b := &builder{
+		lineFmt: "#L%d",
+		pkg: &Package{
+			ImportPath:  match["importPath"],
+			ProjectRoot: expand("launchpad.net/{repo}", match),
+			ProjectName: match["repo"],
+			ProjectURL:  expand("https://launchpad.net/{repo}/", match),
+			BrowseURL:   expand("http://bazaar.launchpad.net/+branch/{repo}/view/head:{dir}/", match),
+			Etag:        etag,
+		},
 	}
-	browseURL := "http://bazaar.launchpad.net/+branch/" + repo + "/view/head:/" + d
-
-	return buildDoc(importPath, projectRoot, projectName, projectURL, browseURL, etag, "#L%d", files)
+	return b.build(files)
 }

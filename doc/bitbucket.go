@@ -15,34 +15,50 @@
 package doc
 
 import (
-	"encoding/json"
 	"net/http"
 	"path"
 	"regexp"
 )
 
-var bitbucketPattern = regexp.MustCompile(`^bitbucket\.org/([a-z0-9A-Z_.\-]+)/([a-z0-9A-Z_.\-]+)(/[a-z0-9A-Z_.\-/]*)?$`)
+var bitbucketPattern = regexp.MustCompile(`^bitbucket\.org/(?P<owner>[a-z0-9A-Z_.\-]+)/(?P<repo>[a-z0-9A-Z_.\-]+)(?P<dir>/[a-z0-9A-Z_.\-/]*)?$`)
+var bitbucketEtagRe = regexp.MustCompile(`^(hg|git)-`)
 
-func getBitbucketDoc(client *http.Client, m []string, savedEtag string) (*Package, error) {
+func getBitbucketDoc(client *http.Client, match map[string]string, savedEtag string) (*Package, error) {
 
-	importPath := m[0]
-	projectRoot := "bitbucket.org/" + m[1] + "/" + m[2]
-	projectName := m[2]
-	projectURL := "https://bitbucket.org/" + m[1] + "/" + m[2] + "/"
-	userRepo := m[1] + "/" + m[2]
-	dir := normalizeDir(m[3])
-
-	// Find the revision tag for tip and fetch the directory listing for that
-	// tag.  Mercurial repositories use the tag "tip". Git repositories use the
-	// tag "master".
-	tag := "tip"
-	p, etag, err := httpGetBytesCompare(client, "https://api.bitbucket.org/1.0/repositories/"+userRepo+"/src/"+tag+"/"+dir, savedEtag)
-	if err == ErrPackageNotFound {
-		tag = "master"
-		p, etag, err = httpGetBytesCompare(client, "https://api.bitbucket.org/1.0/repositories/"+userRepo+"/src/"+tag+"/"+dir, savedEtag)
+	if m := bitbucketEtagRe.FindStringSubmatch(savedEtag); m != nil {
+		match["vcs"] = m[1]
+	} else {
+		var repo struct {
+			Scm string
+		}
+		if err := httpGetJSON(client, expand("https://api.bitbucket.org/1.0/repositories/{owner}/{repo}", match), &repo); err != nil {
+			return nil, err
+		}
+		match["vcs"] = repo.Scm
 	}
+
+	tags := make(map[string]string)
+	for _, nodeType := range []string{"branches", "tags"} {
+		var nodes map[string]struct {
+			Node string
+		}
+		if err := httpGetJSON(client, expand("https://api.bitbucket.org/1.0/repositories/{owner}/{repo}/{0}", match, nodeType), &nodes); err != nil {
+			return nil, err
+		}
+		for t, n := range nodes {
+			tags[t] = n.Node
+		}
+	}
+
+	var err error
+	match["tag"], match["commit"], err = bestTag(tags, defaultTags[match["vcs"]])
 	if err != nil {
 		return nil, err
+	}
+
+	etag := expand("{vcs}-{commit}", match)
+	if etag == savedEtag {
+		return nil, ErrNotModified
 	}
 
 	var directory struct {
@@ -50,7 +66,8 @@ func getBitbucketDoc(client *http.Client, m []string, savedEtag string) (*Packag
 			Path string
 		}
 	}
-	if err := json.Unmarshal(p, &directory); err != nil {
+
+	if err := httpGetJSON(client, expand("https://api.bitbucket.org/1.0/repositories/{owner}/{repo}/src/{tag}{dir}/", match), &directory); err != nil {
 		return nil, err
 	}
 
@@ -60,8 +77,8 @@ func getBitbucketDoc(client *http.Client, m []string, savedEtag string) (*Packag
 			_, name := path.Split(f.Path)
 			files = append(files, &source{
 				name:      name,
-				browseURL: "https://bitbucket.org/" + userRepo + "/src/" + tag + "/" + f.Path,
-				rawURL:    "https://api.bitbucket.org/1.0/repositories/" + userRepo + "/raw/" + tag + "/" + f.Path,
+				browseURL: expand("https://bitbucket.org/{owner}/{repo}/src/{tag}/{0}", match, f.Path),
+				rawURL:    expand("https://api.bitbucket.org/1.0/repositories/{owner}/{repo}/raw/{tag}/{0}", match, f.Path),
 			})
 		}
 	}
@@ -70,7 +87,17 @@ func getBitbucketDoc(client *http.Client, m []string, savedEtag string) (*Packag
 		return nil, err
 	}
 
-	browseURL := "https://bitbucket.org/" + userRepo + "/src/" + tag + m[3]
+	b := builder{
+		lineFmt: "#cl-%d",
+		pkg: &Package{
+			ImportPath:  match["importPath"],
+			ProjectRoot: expand("bitbucket.org/{owner}/{repo}", match),
+			ProjectName: match["repo"],
+			ProjectURL:  expand("https://bitbucket.org/{owner}/{repo}/", match),
+			BrowseURL:   expand("https://bitbucket.org/{owner}/{repo}/src/{tag}{dir}", match),
+			Etag:        etag,
+		},
+	}
 
-	return buildDoc(importPath, projectRoot, projectName, projectURL, browseURL, etag, "#cl-%d", files)
+	return b.build(files)
 }

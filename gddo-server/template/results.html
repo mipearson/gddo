@@ -1,0 +1,21 @@
+{{define "results.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  {{template "CommonHead"}}
+  <title>{{.q|html}} - GoDoc</title>
+</head>
+<body>
+<div class="container spacey">
+{{template "SiteNav" ""}}
+{{template "SearchBox" .q}}
+{{if .pkgs}}
+  {{template "Pkgs" .pkgs}}
+{{else}}
+  <p>No packages found.
+{{end}}
+</div>
+{{template "Footer"}}
+</body>
+</html>
+{{end}}

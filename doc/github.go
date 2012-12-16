@@ -15,7 +15,6 @@
 package doc
 
 import (
-	"encoding/json"
 	"net/http"
 	"path"
 	"regexp"
@@ -23,25 +22,16 @@ import (
 )
 
 var githubRawHeader = http.Header{"Accept": {"application/vnd.github-blob.raw"}}
-var githubPattern = regexp.MustCompile(`^github\.com/([a-z0-9A-Z_.\-]+)/([a-z0-9A-Z_.\-]+)(/[a-z0-9A-Z_.\-/]*)?$`)
+var githubPattern = regexp.MustCompile(`^github\.com/(?P<owner>[a-z0-9A-Z_.\-]+)/(?P<repo>[a-z0-9A-Z_.\-]+)(?P<dir>/[a-z0-9A-Z_.\-/]*)?$`)
 var githubCred string
 
 func SetGithubCredentials(id, secret string) {
 	githubCred = "client_id=" + id + "&client_secret=" + secret
 }
 
-func getGithubDoc(client *http.Client, m []string, savedEtag string) (*Package, error) {
-	importPath := m[0]
-	projectRoot := "github.com/" + m[1] + "/" + m[2]
-	projectName := m[2]
-	projectURL := "https://github.com/" + m[1] + "/" + m[2] + "/"
-	userRepo := m[1] + "/" + m[2]
-	dir := normalizeDir(m[3])
+func getGithubDoc(client *http.Client, match map[string]string, savedEtag string) (*Package, error) {
 
-	p, err := httpGetBytes(client, "https://api.github.com/repos/"+userRepo+"/git/refs?"+githubCred)
-	if err != nil {
-		return nil, err
-	}
+	match["cred"] = githubCred
 
 	var refs []*struct {
 		Object struct {
@@ -53,32 +43,29 @@ func getGithubDoc(client *http.Client, m []string, savedEtag string) (*Package, 
 		Url string
 	}
 
-	if err := json.Unmarshal(p, &refs); err != nil {
+	err := httpGetJSON(client, expand("https://api.github.com/repos/{owner}/{repo}/git/refs?{cred}", match), &refs)
+	if err != nil {
 		return nil, err
 	}
 
-	etag := ""
-	treeName := "master"
+	tags := make(map[string]string)
 	for _, ref := range refs {
-		if ref.Ref == "refs/heads/go1" || ref.Ref == "refs/tags/go1" {
-			treeName = "go1"
-			etag = ref.Object.Sha + ref.Ref[len("refs"):]
-			break
-		} else if ref.Ref == "refs/heads/master" {
-			etag = ref.Object.Sha
+		switch {
+		case strings.HasPrefix(ref.Ref, "refs/heads/"):
+			tags[ref.Ref[len("refs/heads/"):]] = ref.Object.Sha
+		case strings.HasPrefix(ref.Ref, "refs/tags/"):
+			tags[ref.Ref[len("refs/tags/"):]] = ref.Object.Sha
 		}
 	}
 
-	switch etag {
-	case "":
-		return nil, ErrPackageNotFound
-	case savedEtag:
-		return nil, ErrPackageNotModified
-	}
-
-	p, err = httpGetBytes(client, "https://api.github.com/repos/"+userRepo+"/git/trees/"+treeName+"?recursive=1&"+githubCred)
+	var commit string
+	match["tag"], commit, err = bestTag(tags, "master")
 	if err != nil {
 		return nil, err
+	}
+
+	if commit == savedEtag {
+		return nil, ErrNotModified
 	}
 
 	var tree struct {
@@ -89,46 +76,64 @@ func getGithubDoc(client *http.Client, m []string, savedEtag string) (*Package, 
 		}
 		Url string
 	}
-	if err := json.Unmarshal(p, &tree); err != nil {
+
+	err = httpGetJSON(client, expand("https://api.github.com/repos/{owner}/{repo}/git/trees/{tag}?recursive=1&{cred}", match), &tree)
+	if err != nil {
 		return nil, err
 	}
 
 	// Because Github API URLs are case-insensitive, we need to check that the
 	// userRepo returned from Github matches the one that we are requesting.
-	if !strings.HasPrefix(tree.Url, "https://api.github.com/repos/"+userRepo+"/") {
-		return nil, ErrPackageNotFound
+	if !strings.HasPrefix(tree.Url, expand("https://api.github.com/repos/{owner}/{repo}/", match)) {
+		return nil, NotFoundError{"Github import path has incorrect case."}
 	}
 
 	inTree := false
+	dirPrefix := match["dir"]
+	if dirPrefix != "" {
+		dirPrefix = dirPrefix[1:] + "/"
+	}
 	var files []*source
 	for _, node := range tree.Tree {
 		if node.Type != "blob" ||
 			!isDocFile(node.Path) ||
-			!strings.HasPrefix(node.Path, dir) {
+			!strings.HasPrefix(node.Path, dirPrefix) {
 			continue
 		}
 		inTree = true
-		if d, f := path.Split(node.Path); d == dir {
+		if d, f := path.Split(node.Path); d == dirPrefix {
 			files = append(files, &source{
 				name:      f,
-				browseURL: "https://github.com/" + userRepo + "/blob/" + treeName + "/" + node.Path,
+				browseURL: expand("https://github.com/{owner}/{repo}/blob/{tag}/{0}", match, node.Path),
 				rawURL:    node.Url + "?" + githubCred,
 			})
 		}
 	}
 
 	if !inTree {
-		return nil, ErrPackageNotFound
+		return nil, NotFoundError{"Directory tree does not contain Go files."}
 	}
 
 	if err := fetchFiles(client, files, githubRawHeader); err != nil {
 		return nil, err
 	}
 
-	browseURL := projectURL
-	if dir != "" {
-		browseURL = "https://github.com/" + userRepo + "/tree/" + treeName + "/" + dir[:len(dir)-1]
+	browseURL := expand("https://github.com/{owner}/{repo}", match)
+	if match["dir"] != "" {
+		browseURL = expand("https://github.com/{owner}/{repo}/tree/{tag}{dir}", match)
 	}
 
-	return buildDoc(importPath, projectRoot, projectName, projectURL, browseURL, etag, "#L%d", files)
+	b := &builder{
+		lineFmt: "#L%d",
+		pkg: &Package{
+			ImportPath:  match["importPath"],
+			ProjectRoot: expand("github.com/{owner}/{repo}", match),
+			ProjectName: match["repo"],
+			ProjectURL:  expand("https://github.com/{owner}/{repo}", match),
+			BrowseURL:   browseURL,
+			Etag:        commit,
+		},
+	}
+
+	return b.build(files)
 }

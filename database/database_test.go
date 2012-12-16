@@ -65,7 +65,7 @@ func TestPutGet(t *testing.T) {
 		ProjectRoot: "github.com/user/repo",
 		ProjectName: "foo",
 		Updated:     updated,
-		Imports:     []string{"errors", "github.com/user/repo/foo/bar"}, // self import for testing convenience.
+		Imports:     []string{"C", "errors", "github.com/user/repo/foo/bar"}, // self import for testing convenience.
 	}
 	if err := db.Put(pdoc); err != nil {
 		t.Errorf("db.Put() returned error %v", err)
@@ -115,11 +115,16 @@ func TestPutGet(t *testing.T) {
 	if !reflect.DeepEqual(actualImporters, expectedImporters) {
 		t.Errorf("db.Importers() = %v, want %v", actualImporters, expectedImporters)
 	}
-	actualImports, err := db.Imports(pdoc)
+	actualImports, err := db.Packages(pdoc.Imports)
 	if err != nil {
 		t.Fatalf("db.Imports() retunred error %v", err)
 	}
-	expectedImports := []database.Package{{"errors", ""}, {"github.com/user/repo/foo/bar", "hello"}}
+	for i := range actualImports {
+		if actualImports[i].Path == "C" {
+			actualImports[i].Synopsis = ""
+		}
+	}
+	expectedImports := []database.Package{{"C", ""}, {"errors", ""}, {"github.com/user/repo/foo/bar", "hello"}}
 	if !reflect.DeepEqual(actualImports, expectedImports) {
 		t.Errorf("db.Imports() = %v, want %v", actualImports, expectedImports)
 	}
@@ -133,10 +138,29 @@ func TestPutGet(t *testing.T) {
 
 	db.Query("bar")
 
+	if err := db.Put(pdoc); err != nil {
+		t.Errorf("db.Put() returned error %v", err)
+	}
+
+	if err := db.Block("github.com/user/repo"); err != nil {
+		t.Errorf("db.Block() returned error %v, err")
+	}
+
+	blocked, err := db.IsBlocked("github.com/user/repo/foo/bar")
+	if !blocked || err != nil {
+		t.Errorf("db.IsBlocked(github.com/user/repo/foo/bar) returned %v, %v, want true, nil", blocked, err)
+	}
+
+	blocked, err = db.IsBlocked("github.com/foo/bar")
+	if blocked || err != nil {
+		t.Errorf("db.IsBlocked(github.com/foo/bar) returned %v, %v, want false, nil", blocked, err)
+	}
+
 	c := db.Pool.Get()
 	defer c.Close()
 	c.Send("DEL", "maxQueryId")
 	c.Send("DEL", "maxPackageId")
+	c.Send("DEL", "block")
 	if n, err := c.Do("DBSIZE"); n != int64(0) || err != nil {
 		t.Errorf("c.Do(DBSIZE) = %d, %v, want 0, nil", n, err)
 	}

@@ -3,41 +3,62 @@ package doc
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 )
 
-// normalizeDir removes leading slash and adds trailing slash.
-func normalizeDir(s string) string {
-	if len(s) > 0 && s[0] == '/' {
-		s = s[1:] + "/"
+var defaultTags = map[string]string{"git": "master", "hg": "default"}
+
+func bestTag(tags map[string]string, defaultTag string) (string, string, error) {
+	if commit, ok := tags["go1"]; ok {
+		return "go1", commit, nil
 	}
-	return s
+	if commit, ok := tags[defaultTag]; ok {
+		return defaultTag, commit, nil
+	}
+	return "", "", NotFoundError{"Tag or branch not found."}
+}
+
+// expand replaces {k} in template with match[k] or subs[atoi(k)] if k is not in match.
+func expand(template string, match map[string]string, subs ...string) string {
+	var p []byte
+	var i int
+	for {
+		i = strings.Index(template, "{")
+		if i < 0 {
+			break
+		}
+		p = append(p, template[:i]...)
+		template = template[i+1:]
+		i = strings.Index(template, "}")
+		if s, ok := match[template[:i]]; ok {
+			p = append(p, s...)
+		} else {
+			j, _ := strconv.Atoi(template[:i])
+			p = append(p, subs[j]...)
+		}
+		template = template[i+1:]
+	}
+	p = append(p, template...)
+	return string(p)
 }
 
 // isDocFile returns true if a file with the path p should be included in the
 // documentation.
 func isDocFile(p string) bool {
-	_, n := path.Split(p)
+	n := path.Base(p)
 	return strings.HasSuffix(n, ".go") && len(n) > 0 && n[0] != '_' && n[0] != '.'
-}
-
-type GetError struct {
-	Host string
-	err  error
-}
-
-func (e GetError) Error() string {
-	return e.err.Error()
 }
 
 // fetchFiles fetches the source files specified by the rawURL field in parallel.
 func fetchFiles(client *http.Client, files []*source, header http.Header) error {
-	ch := make(chan error)
+	ch := make(chan error, len(files))
 	for i := range files {
 		go func(i int) {
 			req, err := http.NewRequest("GET", files[i].rawURL, nil)
@@ -50,16 +71,17 @@ func fetchFiles(client *http.Client, files []*source, header http.Header) error 
 			}
 			resp, err := client.Do(req)
 			if err != nil {
-				ch <- GetError{req.URL.Host, err}
+				ch <- &RemoteError{req.URL.Host, err}
 				return
 			}
+			defer resp.Body.Close()
 			if resp.StatusCode != 200 {
-				ch <- GetError{req.URL.Host, fmt.Errorf("get %s -> %d", req.URL, resp.StatusCode)}
+				ch <- &RemoteError{req.URL.Host, fmt.Errorf("get %s -> %d", req.URL, resp.StatusCode)}
 				return
 			}
 			files[i].data, err = ioutil.ReadAll(resp.Body)
 			if err != nil {
-				ch <- GetError{req.URL.Host, err}
+				ch <- &RemoteError{req.URL.Host, err}
 				return
 			}
 			ch <- nil
@@ -73,7 +95,7 @@ func fetchFiles(client *http.Client, files []*source, header http.Header) error 
 	return nil
 }
 
-// httpGet gets the specified resource. ErrPackageNotFound is returned if the
+// httpGet gets the specified resource. ErrNotFound is returned if the
 // server responds with status 404.
 func httpGet(client *http.Client, url string) (io.ReadCloser, error) {
 	req, err := http.NewRequest("GET", url, nil)
@@ -82,21 +104,34 @@ func httpGet(client *http.Client, url string) (io.ReadCloser, error) {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, GetError{req.URL.Host, err}
+		return nil, &RemoteError{req.URL.Host, err}
 	}
 	if resp.StatusCode == 200 {
 		return resp.Body, nil
 	}
 	resp.Body.Close()
 	if resp.StatusCode == 404 { // 403 can be rate limit error.  || resp.StatusCode == 403 {
-		err = ErrPackageNotFound
+		err = NotFoundError{"Resource not found: " + url}
 	} else {
-		err = GetError{req.URL.Host, fmt.Errorf("get %s -> %d", url, resp.StatusCode)}
+		err = &RemoteError{req.URL.Host, fmt.Errorf("get %s -> %d", url, resp.StatusCode)}
 	}
 	return nil, err
 }
 
-// httpGet gets the specified resource. ErrPackageNotFound is returned if the
+func httpGetJSON(client *http.Client, url string, v interface{}) error {
+	rc, err := httpGet(client, url)
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	err = json.NewDecoder(rc).Decode(v)
+	if _, ok := err.(*json.SyntaxError); ok {
+		err = NotFoundError{"JSON syntax error at " + url}
+	}
+	return err
+}
+
+// httpGet gets the specified resource. ErrNotFound is returned if the
 // server responds with status 404.
 func httpGetBytes(client *http.Client, url string) ([]byte, error) {
 	rc, err := httpGet(client, url)
@@ -109,8 +144,8 @@ func httpGetBytes(client *http.Client, url string) ([]byte, error) {
 }
 
 // httpGetBytesNoneMatch conditionally gets the specified resource. If a 304 status
-// is returned, then the function returns ErrPackageNotModified. If a 404
-// status is returned, then the function returns ErrPackageNotFound.
+// is returned, then the function returns ErrNotModified. If a 404
+// status is returned, then the function returns ErrNotFound.
 func httpGetBytesNoneMatch(client *http.Client, url string, etag string) ([]byte, string, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -119,7 +154,7 @@ func httpGetBytesNoneMatch(client *http.Client, url string, etag string) ([]byte
 	req.Header.Set("If-None-Match", `"`+etag+`"`)
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, "", GetError{req.URL.Host, err}
+		return nil, "", &RemoteError{req.URL.Host, err}
 	}
 	defer resp.Body.Close()
 
@@ -135,17 +170,17 @@ func httpGetBytesNoneMatch(client *http.Client, url string, etag string) ([]byte
 		p, err := ioutil.ReadAll(resp.Body)
 		return p, etag, err
 	case 404:
-		return nil, "", ErrPackageNotFound
+		return nil, "", NotFoundError{"Resource not found: " + url}
 	case 304:
-		return nil, "", ErrPackageNotModified
+		return nil, "", ErrNotModified
 	default:
-		return nil, "", GetError{req.URL.Host, fmt.Errorf("get %s -> %d", url, resp.StatusCode)}
+		return nil, "", &RemoteError{req.URL.Host, fmt.Errorf("get %s -> %d", url, resp.StatusCode)}
 	}
 	panic("unreachable")
 }
 
-// httpGet gets the specified resource. ErrPackageNotFound is returned if the
-// server responds with status 404. ErrPackageNotModified is returned if the
+// httpGet gets the specified resource. ErrNotFound is returned if the
+// server responds with status 404. ErrNotModified is returned if the
 // hash of the resource equals savedEtag.
 func httpGetBytesCompare(client *http.Client, url string, savedEtag string) ([]byte, string, error) {
 	p, err := httpGetBytes(client, url)
@@ -156,7 +191,7 @@ func httpGetBytesCompare(client *http.Client, url string, savedEtag string) ([]b
 	h.Write(p)
 	etag := hex.EncodeToString(h.Sum(nil))
 	if savedEtag == etag {
-		err = ErrPackageNotModified
+		err = ErrNotModified
 	}
 	return p, etag, err
 }

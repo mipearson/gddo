@@ -26,69 +26,58 @@ var (
 	googleRevisionRe = regexp.MustCompile(`<h2>(?:[^ ]+ - )?Revision *([^:]+):`)
 	googleEtagRe     = regexp.MustCompile(`^(hg|git|svn)-`)
 	googleFileRe     = regexp.MustCompile(`<li><a href="([^"/]+)"`)
-	googlePattern    = regexp.MustCompile(`^code\.google\.com/p/([a-z0-9\-]+)(\.[a-z0-9\-]+)?(/[a-z0-9A-Z_.\-/]+)?$`)
+	googlePattern    = regexp.MustCompile(`^code\.google\.com/p/(?P<repo>[a-z0-9\-]+)(:?\.(?P<subrepo>[a-z0-9\-]+))?(?P<dir>/[a-z0-9A-Z_.\-/]+)?$`)
 )
 
-func getGoogleDoc(client *http.Client, m []string, savedEtag string) (*Package, error) {
+func getGoogleDoc(client *http.Client, match map[string]string, savedEtag string) (*Package, error) {
 
-	importPath := m[0]
-	projectRoot := "code.google.com/p/" + m[1] + m[2]
-	projectName := m[1] + m[2]
-	projectURL := "https://code.google.com/p/" + m[1] + "/"
-
-	repo := m[1]
-	subrepo := m[2]
-	if len(subrepo) > 0 {
-		subrepo = subrepo[1:] + "."
+	if s := match["subrepo"]; s != "" {
+		match["dot"] = "."
+		match["query"] = "?repo=" + s
+	} else {
+		match["dot"] = ""
+		match["query"] = ""
 	}
 
-	dir := normalizeDir(m[3])
-
-	var vcs string
-
 	if m := googleEtagRe.FindStringSubmatch(savedEtag); m != nil {
-		vcs = m[1]
+		match["vcs"] = m[1]
 	} else {
 		// Scrape the HTML project page to find the VCS.
-		p, err := httpGetBytes(client, "http://code.google.com/p/"+repo+"/source/checkout")
+		p, err := httpGetBytes(client, expand("http://code.google.com/p/{repo}/source/checkout", match))
 		if err != nil {
 			return nil, err
 		}
 		if m := googleRepoRe.FindSubmatch(p); m != nil {
-			vcs = string(m[1])
+			match["vcs"] = string(m[1])
 		} else {
-			return nil, ErrPackageNotFound
+			return nil, NotFoundError{"Could not VCS on Google Code project page."}
 		}
 	}
 
 	// Scrape the repo browser to find the project revision and individual Go files.
-	p, err := httpGetBytes(client, "http://"+subrepo+repo+".googlecode.com/"+vcs+"/"+dir)
+	p, err := httpGetBytes(client, expand("http://{subrepo}{dot}{repo}.googlecode.com/{vcs}{dir}/", match))
 	if err != nil {
 		return nil, err
 	}
 
 	var etag string
 	if m := googleRevisionRe.FindSubmatch(p); m == nil {
-		return nil, errors.New("Could not find revision for " + importPath)
+		return nil, errors.New("Could not find revision for " + match["importPath"])
 	} else {
-		etag = vcs + "-" + string(m[1])
+		etag = expand("{vcs}-{0}", match, string(m[1]))
 		if etag == savedEtag {
-			return nil, ErrPackageNotModified
+			return nil, ErrNotModified
 		}
 	}
 
 	var files []*source
-	query := ""
-	if subrepo != "" {
-		query = "?repo=" + subrepo[:len(subrepo)-1]
-	}
 	for _, m := range googleFileRe.FindAllSubmatch(p, -1) {
 		fname := string(m[1])
 		if isDocFile(fname) {
 			files = append(files, &source{
 				name:      fname,
-				browseURL: "http://code.google.com/p/" + repo + "/source/browse/" + dir + fname + query,
-				rawURL:    "http://" + subrepo + repo + ".googlecode.com/" + vcs + "/" + dir + fname,
+				browseURL: expand("http://code.google.com/p/{repo}/source/browse{dir}/{0}{query}", match, fname),
+				rawURL:    expand("http://{subrepo}{dot}{repo}.googlecode.com/{vcs}{dir}/{0}", match, fname),
 			})
 		}
 	}
@@ -97,9 +86,19 @@ func getGoogleDoc(client *http.Client, m []string, savedEtag string) (*Package, 
 		return nil, err
 	}
 
-	browseURL := "http://code.google.com/p/" + repo + "/source/browse/" + dir + query
+	b := &builder{
+		lineFmt: "#%d",
+		pkg: &Package{
+			ImportPath:  match["importPath"],
+			ProjectRoot: expand("code.google.com/p/{repo}{dot}{subrepo}", match),
+			ProjectName: expand("{repo}{dot}{subrepo}", match),
+			ProjectURL:  expand("https://code.google.com/p/{repo}/", match),
+			BrowseURL:   expand("http://code.google.com/p/{repo}/source/browse{dir}/{query}", match),
+			Etag:        etag,
+		},
+	}
 
-	return buildDoc(importPath, projectRoot, projectName, projectURL, browseURL, etag, "#%d", files)
+	return b.build(files)
 }
 
 func getStandardDoc(client *http.Client, importPath string, savedEtag string) (*Package, error) {
@@ -115,7 +114,7 @@ func getStandardDoc(client *http.Client, importPath string, savedEtag string) (*
 	} else {
 		etag = string(m[1])
 		if etag == savedEtag {
-			return nil, ErrPackageNotModified
+			return nil, ErrNotModified
 		}
 	}
 
@@ -135,7 +134,17 @@ func getStandardDoc(client *http.Client, importPath string, savedEtag string) (*
 		return nil, err
 	}
 
-	browseURL := "http://code.google.com/p/go/source/browse/src/pkg/" + importPath + "?name=release"
+	b := &builder{
+		lineFmt: "#%d",
+		pkg: &Package{
+			ImportPath:  importPath,
+			ProjectRoot: "",
+			ProjectName: "Go",
+			ProjectURL:  "https://code.google.com/p/go/",
+			BrowseURL:   "http://code.google.com/p/go/source/browse/src/pkg/" + importPath + "?name=release",
+			Etag:        etag,
+		},
+	}
 
-	return buildDoc(importPath, "", "Go", "https://code.google.com/p/go", browseURL, etag, "#%d", files)
+	return b.build(files)
 }

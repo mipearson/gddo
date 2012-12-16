@@ -23,6 +23,10 @@ var goodImportPaths = []string{
 	"github.com/user/repo/src/pkg/compress/somethingelse",
 	"github.com/user/repo/src/compress/gzip",
 	"github.com/user/repo/src/pkg",
+	"camlistore.org/r/p/camlistore",
+	"example.com/foo.git",
+	"launchpad.net/~user/foo/trunk",
+	"launchpad.net/~user/+junk/version",
 }
 
 var badImportPaths = []string{
@@ -30,6 +34,7 @@ var badImportPaths = []string{
 	"foo.",
 	".bar",
 	"favicon.ico",
+	"exmpple.com",
 	"github.com/user/repo/testdata/x",
 	"github.com/user/repo/_ignore/x",
 	"github.com/user/repo/.ignore/x",
