@@ -1,21 +1,11 @@
-{{define "notfound.html"}}<!DOCTYPE html>
-<html lang="en">
-<head>
-  {{template "CommonHead"}}
-  <title>Not Found - GoDoc</title>
-</head>
+{{define "Head"}}<title>Not Found - GoDoc</title>{{end}}
+{{define "Scripts"}}{{end}}
 
-<body>
-<div class="container">
-{{template "SiteNav" ""}}
-<h2>Not Found</h2>
-<p>Oh snap! Our team of gophers could not find the web page you are looking for. Try one of these pages:
-<ul>
-  <li><a href="/">Home</a>
-  <li><a href="/-/index">Package Index</a>
-</ul>
-</div>
-{{template "Footer"}}
-</body>
-</html>
+{{define "Body"}}
+  <h2>Not Found</h2>
+  <p>Oh snap! Our team of gophers could not find the web page you are looking for. Try one of these pages:
+  <ul>
+    <li><a href="/">Home</a>
+    <li><a href="/-/index">Package Index</a>
+  </ul>
 {{end}}

@@ -5117,9 +5117,9 @@ a.badge:hover {
   line-height: 30px;
 }
 .navbar,
-.spacey h2,
-.spacey h3,
-.spacey h4 {
+h2,
+h3,
+h4 {
   margin-top: 20px;
 }
 code {

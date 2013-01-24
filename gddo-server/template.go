@@ -18,12 +18,13 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	godoc "go/doc"
 	"go/scanner"
 	"go/token"
+	htemp "html/template"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/url"
@@ -34,19 +35,24 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"text/template"
+	ttemp "text/template"
 	"time"
 
 	"github.com/garyburd/gopkgdoc/doc"
 	"github.com/garyburd/indigo/web"
 )
 
+func escapePath(s string) string {
+	u := url.URL{Path: s}
+	return u.String()
+}
+
 var (
 	staticMutex sync.RWMutex
 	staticHash  = make(map[string]string)
 )
 
-func staticFileFn(p string) string {
+func staticFileFn(p string) htemp.URL {
 	staticMutex.RLock()
 	h, ok := staticHash[p]
 	staticMutex.RUnlock()
@@ -56,7 +62,7 @@ func staticFileFn(p string) string {
 		b, err := ioutil.ReadFile(fp)
 		if err != nil {
 			log.Printf("WARNING could not read static file %s", fp)
-			return "/-/static/" + p
+			return htemp.URL("/-/static/" + p)
 		}
 
 		m := md5.New()
@@ -68,7 +74,7 @@ func staticFileFn(p string) string {
 		staticMutex.Unlock()
 	}
 
-	return "/-/static/" + p + "?v=" + h
+	return htemp.URL("/-/static/" + p + "?v=" + h)
 }
 
 func mapFn(kvs ...interface{}) (map[string]interface{}, error) {
@@ -91,17 +97,17 @@ func relativePathFn(path string, parentPath interface{}) string {
 	if p, ok := parentPath.(string); ok && p != "" && strings.HasPrefix(path, p) {
 		path = path[len(p)+1:]
 	}
-	return urlFn(path)
+	return path
 }
 
 // importPathFn formats an import with zero width space characters to allow for breaks.
-func importPathFn(path string) string {
-	path = template.HTMLEscapeString(path)
+func importPathFn(path string) htemp.HTML {
+	path = htemp.HTMLEscapeString(path)
 	if len(path) > 45 {
 		// Allow long import paths to break following "/"
 		path = strings.Replace(path, "/", "/&#8203;", -1)
 	}
-	return path
+	return htemp.HTML(path)
 }
 
 // relativeTime formats the time t in nanoseconds as a human readable relative
@@ -140,14 +146,14 @@ var (
 )
 
 // commentFn formats a source code comment as HTML.
-func commentFn(v string) string {
+func commentFn(v string) htemp.HTML {
 	var buf bytes.Buffer
 	godoc.ToHTML(&buf, v, nil)
 	p := buf.Bytes()
 	p = bytes.Replace(p, h3Open, h4Open, -1)
 	p = bytes.Replace(p, h3Close, h4Close, -1)
 	p = rfcRE.ReplaceAll(p, rfcReplace)
-	return string(p)
+	return htemp.HTML(p)
 }
 
 // commentTextFn formats a source code comment as text.
@@ -165,9 +171,9 @@ func (p sortByPos) Len() int           { return len(p) }
 func (p sortByPos) Less(i, j int) bool { return p[i].Pos < p[j].Pos }
 func (p sortByPos) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
-func formatCode(src []byte, annotations []doc.TypeAnnotation) string {
+func formatCode(src []byte, annotations []doc.TypeAnnotation) htemp.HTML {
 
-	// Collect comment positions in type annotation with Name = ""
+	// Collect comment positions.
 	var (
 		comments []doc.TypeAnnotation
 		s        scanner.Scanner
@@ -202,38 +208,42 @@ commentLoop:
 	var buf bytes.Buffer
 	last := 0
 	for _, a := range annotations {
-		template.HTMLEscape(&buf, src[last:a.Pos])
+		htemp.HTMLEscape(&buf, src[last:a.Pos])
 		if a.Name != "" {
 			p := a.ImportPath
 			if p != "" {
 				p = "/" + p
 			}
 			buf.WriteString(`<a href="`)
-			buf.WriteString(urlFn(p))
+			buf.WriteString(escapePath(p))
 			buf.WriteByte('#')
-			buf.WriteString(urlFn(a.Name))
+			buf.WriteString(escapePath(a.Name))
 			buf.WriteString(`">`)
-			template.HTMLEscape(&buf, src[a.Pos:a.End])
+			htemp.HTMLEscape(&buf, src[a.Pos:a.End])
 			buf.WriteString(`</a>`)
 		} else {
 			buf.WriteString(`<span class="com">`)
-			template.HTMLEscape(&buf, src[a.Pos:a.End])
+			htemp.HTMLEscape(&buf, src[a.Pos:a.End])
 			buf.WriteString(`</span>`)
 		}
 		last = a.End
 	}
-	template.HTMLEscape(&buf, src[last:])
-	return buf.String()
+	htemp.HTMLEscape(&buf, src[last:])
+	return htemp.HTML(buf.String())
 }
 
 // declFn formats a Decl as HTML.
-func declFn(decl doc.Decl) string {
+func declFn(decl doc.Decl) htemp.HTML {
 	return formatCode([]byte(decl.Text), decl.Annotations)
+}
+
+func exampleFn(s string) htemp.HTML {
+	return formatCode([]byte(s), nil)
 }
 
 func pageNameFn(pdoc *doc.Package) string {
 	_, name := path.Split(pdoc.ImportPath)
-	return template.HTMLEscapeString(name)
+	return name
 }
 
 type crumb struct {
@@ -242,7 +252,7 @@ type crumb struct {
 	Sep  bool
 }
 
-func breadcrumbsFn(pdoc *doc.Package, page string) string {
+func breadcrumbsFn(pdoc *doc.Package, templateName string) htemp.HTML {
 	if !strings.HasPrefix(pdoc.ImportPath, pdoc.ProjectRoot) {
 		return ""
 	}
@@ -259,15 +269,15 @@ func breadcrumbsFn(pdoc *doc.Package, page string) string {
 		if i != 0 {
 			buf.WriteString(`<span class="muted">/</span>`)
 		}
-		link := j < len(pdoc.ImportPath) || page == "imp"
+		link := j < len(pdoc.ImportPath) || templateName == "imports.html" || templateName == "importers.html"
 		if link {
 			buf.WriteString(`<a href="/`)
-			buf.WriteString(urlFn(pdoc.ImportPath[:j]))
+			buf.WriteString(escapePath(pdoc.ImportPath[:j]))
 			buf.WriteString(`">`)
 		} else {
 			buf.WriteString(`<span class="muted">`)
 		}
-		buf.WriteString(template.HTMLEscapeString(pdoc.ImportPath[i:j]))
+		buf.WriteString(htemp.HTMLEscapeString(pdoc.ImportPath[i:j]))
 		if link {
 			buf.WriteString("</a>")
 		} else {
@@ -284,20 +294,7 @@ func breadcrumbsFn(pdoc *doc.Package, page string) string {
 			j += i
 		}
 	}
-	return buf.String()
-}
-
-func urlFn(path string) string {
-	u := url.URL{Path: path}
-	return u.String()
-}
-
-func jsonFn(v interface{}) (string, error) {
-	p, err := json.Marshal(v)
-	if err != nil {
-		return "", err
-	}
-	return string(p), nil
+	return htemp.HTML(buf.String())
 }
 
 type texample struct {
@@ -361,10 +358,6 @@ func objectExamplesFn(object interface{}, all []*texample) (result []*texample) 
 	return
 }
 
-func exampleFn(s string) string {
-	return formatCode([]byte(s), nil)
-}
-
 func gaAccountFn() string {
 	return secrets.GAAccount
 }
@@ -379,46 +372,78 @@ func executeTemplate(resp web.Response, name string, status int, data interface{
 	if !ok {
 		contentType = "text/plain; charset=utf-8"
 	}
-
+	t := templates[name]
+	if t == nil {
+		return fmt.Errorf("Template %s not found", name)
+	}
 	w := resp.Start(status, web.Header{web.HeaderContentType: {contentType}})
-	return templateSet.ExecuteTemplate(w, name, data)
+	return t.Execute(w, data)
 }
 
-var templateSet *template.Template
+var templates = map[string]interface {
+	Execute(io.Writer, interface{}) error
+}{}
 
-func parseTemplates(dir string) (*template.Template, error) {
-	// Is there a better way to call ParseGlob with application specified
-	// funcs? The dummy template thing is gross.
-	set, err := template.New("__dummy__").Parse(`{{define "__dummy__"}}{{end}}`)
-	if err != nil {
-		return nil, err
+func parseHTMLTemplates(sets [][]string) error {
+	for _, set := range sets {
+		templateName := set[0]
+		t := htemp.New("")
+		t.Funcs(htemp.FuncMap{
+			"allExamples":       allExamplesFn,
+			"breadcrumbs":       breadcrumbsFn,
+			"comment":           commentFn,
+			"decl":              declFn,
+			"equal":             reflect.DeepEqual,
+			"example":           exampleFn,
+			"gaAccount":         gaAccountFn,
+			"importPath":        importPathFn,
+			"isFunc":            func(v interface{}) bool { _, ok := v.(*doc.Func); return ok },
+			"isPackage":         func(v interface{}) bool { _, ok := v.(*doc.Package); return ok },
+			"isType":            func(v interface{}) bool { _, ok := v.(*doc.Type); return ok },
+			"isValidImportPath": doc.IsValidPath,
+			"map":               mapFn,
+			"objectExamples":    objectExamplesFn,
+			"pageName":          pageNameFn,
+			"relativePath":      relativePathFn,
+			"relativeTime":      relativeTime,
+			"staticFile":        staticFileFn,
+			"templateName":      func() string { return templateName },
+		})
+		var files []string
+		for _, n := range set {
+			files = append(files, filepath.Join(*templateDir, n))
+		}
+		if _, err := t.ParseFiles(files...); err != nil {
+			return err
+		}
+		t = t.Lookup("ROOT")
+		if t == nil {
+			return fmt.Errorf("ROOT template not found in %v", files)
+		}
+		templates[templateName] = t
 	}
-	set.Funcs(template.FuncMap{
-		"json":              jsonFn,
-		"staticFile":        staticFileFn,
-		"comment":           commentFn,
-		"commentText":       commentTextFn,
-		"decl":              declFn,
-		"equal":             reflect.DeepEqual,
-		"map":               mapFn,
-		"breadcrumbs":       breadcrumbsFn,
-		"pageName":          pageNameFn,
-		"relativePath":      relativePathFn,
-		"relativeTime":      relativeTime,
-		"importPath":        importPathFn,
-		"url":               urlFn,
-		"objectExamples":    objectExamplesFn,
-		"allExamples":       allExamplesFn,
-		"example":           exampleFn,
-		"gaAccount":         gaAccountFn,
-		"isValidImportPath": doc.IsValidPath,
-		"isType":            func(v interface{}) bool { _, ok := v.(*doc.Type); return ok },
-		"isPackage":         func(v interface{}) bool { _, ok := v.(*doc.Package); return ok },
-		"isFunc":            func(v interface{}) bool { _, ok := v.(*doc.Func); return ok },
-	})
-	_, err = set.ParseGlob(filepath.Join(dir, "*.html"))
-	if err != nil {
-		return nil, err
+	return nil
+}
+
+func parseTextTemplates(sets [][]string) error {
+	for _, set := range sets {
+		templateName := set[0]
+		t := ttemp.New("")
+		t.Funcs(ttemp.FuncMap{
+			"comment": commentTextFn,
+		})
+		var files []string
+		for _, n := range set {
+			files = append(files, filepath.Join(*templateDir, n))
+		}
+		if _, err := t.ParseFiles(files...); err != nil {
+			return err
+		}
+		t = t.Lookup("ROOT")
+		if t == nil {
+			return fmt.Errorf("ROOT template not found in %v", files)
+		}
+		templates[templateName] = t
 	}
-	return set.ParseGlob(filepath.Join(dir, "*.txt"))
+	return nil
 }

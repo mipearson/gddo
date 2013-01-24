@@ -1,28 +1,25 @@
-{{define "home.html"}}
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  {{template "CommonHead"}}
-  <title>GoDoc</title>
-</head>
+{{define "Head"}}<title>GoDoc</title>{{end}}
+{{define "Scripts"}}{{end}}
 
-<body>
-<div class="container">
-{{template "SiteNav" "home"}}
+{{define "Body"}}
+
   <div class="flat-well well-large"> 
-    <h2>Search for Go packages.</h2>
+    <h2 style="margin-top: 0">Search for Go packages.</h2>
     {{template "SearchBox" ""}}
   </div>
 
   <h4>What is this?</h4>
+
   <p>GoDoc generates <a href="http://golang.org/">Go</a> package documentation
   on the fly from packages on Bitbucket, Github, Google Project Hosting and
   Launchpad. Read the <a href="/-/about">About Page</a> for information about
   adding packages to GoDoc and more.
 
-  {{with .Popular}}<h4>Popular Packages</h4><ul class="unstyled">{{range .}}<li><a href="/{{.Path|url}}">{{.Path|html}}</a>{{end}}{{end}}
-</div>
-{{template "Footer"}}
-</body>
-</html>
+  {{with .Popular}}
+  <h4>Popular Packages</h4>
+    <ul class="unstyled">
+      {{range .}}<li><a href="/{{.Path}}">{{.Path}}</a>{{end}}
+    </ul>
+  {{end}}
+
 {{end}}

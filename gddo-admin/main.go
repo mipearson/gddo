@@ -12,7 +12,7 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
-// GoDoc.org admin tool.
+// Command gddo-admin is the GoDoc.org command line administration tool.
 package main
 
 import (

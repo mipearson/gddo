@@ -1,5 +1,5 @@
-{{define "cmd.txt"}}{{with .pdoc}}
+{{define "ROOT"}}{{with .pdoc}}
 COMMAND DOCUMENTATION
 
-{{.Doc|commentText}}
-{{template "SubdirsText" $}}{{end}}{{end}}
+{{.Doc|comment}}
+{{template "Subdirs" $}}{{end}}{{end}}

@@ -1,2 +1,2 @@
-{{define "home.txt"}}
+{{define "ROOT"}}
 {{end}}

@@ -1,18 +1,8 @@
-{{define "imports.html"}}{{with .pdoc}}<!DOCTYPE html>
-<html lang="en">
-<head>
-  {{template "CommonHead"}}
-  <title>{{.|pageName}} imports - GoDoc</title>
-  <meta name="robots" content="noindex">
-</head>
-<body>
-<div class="container spacey">
-{{template "SiteNav" ""}}
-{{template "ProjectNav" map "pdoc" . "page" "imp"}}
-<h3>Packages imported by {{.Name|html}}</h3>
+{{define "Head"}}<title>{{.pdoc|pageName}} imports - GoDoc</title><meta name="robots" content="noindex">{{end}}
+{{define "Scripts"}}{{end}}
+
+{{define "Body"}}
+{{template "ProjectNav" $}}
+<h3>Packages imported by {{.pdoc.Name|html}}</h3>
 {{template "Pkgs" $.pkgs}}
-</div>
-{{template "Footer"}}
-</body>
-</html>
-{{end}}{{end}}
+{{end}}

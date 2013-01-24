@@ -1,2 +1,2 @@
-{{define "notfound.txt"}}NOT FOUND
+{{define "ROOT"}}NOT FOUND
 {{end}}

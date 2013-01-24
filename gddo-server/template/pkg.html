@@ -1,30 +1,13 @@
-{{define "pkg.html"}}<!DOCTYPE html>
-{{with .pdoc}}
-<html lang="en">
-<head>
-  {{template "CommonHead"}}
-  <title>{{.|pageName}} - GoDoc</title>
-  {{if .Synopsis}}<meta name="description" content="{{.ProjectName|html}}: {{.Synopsis|html}}">{{end}}
-  {{if .Errors}}<meta name="robots" content="noindex">{{end}}
-</head>
+{{define "Head"}}{{template "PkgCmdHeader" $}}{{end}}
+{{define "Scripts"}}{{template "jQuery"}}<script src="{{staticFile "bootstrap.min.js"}}"></script>{{end}}
 
-<body>
-<div class="container spacey">
-{{template "SiteNav" ""}}
-{{template "ProjectNav" map "pdoc" . "page" "pkg" "pkgs" $.pkgs}}
-{{if.Name}}<h2>package {{.Name|html}}</h2>{{end}}
-
-{{with .Errors}}<div class="well"><p>The 
-<a href="http://golang.org/cmd/go/#Download_and_install_packages_and_dependencies">go get</a>
-command cannot install this package because of the following issues:<ul>
-{{range .}}<li>{{.|html}}{{end}}
-</ul></div>{{end}}
-
+{{define "Body"}}{{with .pdoc}}
+{{template "ProjectNav" $}}
+{{if .Name}}<h2>package {{.Name|html}}</h2>{{end}}
+{{template "Errors" $}}
 {{if .Name}}
 {{$examples := allExamples .}}
-
 <p><code>import "{{.ImportPath|html}}"</code>
-
 {{.Doc|comment}}
 {{template "Examples" map "object" . "examples" $examples}}
 
@@ -81,15 +64,10 @@ command cannot install this package because of the following issues:<ul>
 {{with .Bugs}}<h3 id="_bugs">Bugs</h3>{{range .}}<p>{{.|html}}{{end}}{{end}}
 
 {{if .Name}}<h3 id="_files">{{with .BrowseURL}}<a href="{{.|html}}">Files</a>{{else}}Package Files{{end}}</h3><p>{{range .Files}}{{template "SourceLink" .}} {{end}}</p>{{end}}
-
 {{template "PkgCmdFooter" $}}
-</div>
-{{template "Footer"}}
-{{template "jQuery"}}
-<script src="{{staticFile "bootstrap.min.js"}}"></script>
-</body>
-</html>
+
 {{end}}{{end}}
+
 
 {{define "SourceLink"}}{{if .URL}}<a href="{{.URL|html}}">{{.Name|html}}</a>{{else}}{{.Name|html}}{{end}}{{end}}
 

@@ -12,7 +12,7 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
-// Command server is the GoPkgDoc server.
+// Command gddo-server is the GoPkgDoc server.
 package main
 
 import (
@@ -163,19 +163,6 @@ func servePackage(resp web.Response, req *web.Request) error {
 		return executeTemplate(resp, "imports.html", web.StatusOK, map[string]interface{}{
 			"pkgs": pkgs,
 			"pdoc": pdoc,
-		})
-	case "importGraph":
-		if pdoc.Name == "" {
-			return &web.Error{Status: web.StatusNotFound}
-		}
-		nodes, edges, err := db.ImportGraph(pdoc)
-		if err != nil {
-			return err
-		}
-		return executeTemplate(resp, "graph.html", web.StatusOK, map[string]interface{}{
-			"nodes": nodes,
-			"edges": edges,
-			"pdoc":  pdoc,
 		})
 	case "importers":
 		if pdoc.Name == "" {
@@ -364,12 +351,32 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var err error
-	templateSet, err = parseTemplates(*templateDir)
-	if err != nil {
+	if err := parseHTMLTemplates([][]string{
+		{"about.html", "common.html"},
+		{"cmd.html", "common.html"},
+		{"home.html", "common.html"},
+		{"importers.html", "common.html"},
+		{"imports.html", "common.html"},
+		{"index.html", "common.html"},
+		{"notfound.html", "common.html"},
+		{"pkg.html", "common.html"},
+		{"results.html", "common.html"},
+		{"std.html", "common.html"},
+	}); err != nil {
 		log.Fatal(err)
 	}
 
+	if err := parseTextTemplates([][]string{
+		{"cmd.txt", "common.txt"},
+		{"home.txt", "common.txt"},
+		{"notfound.txt", "common.txt"},
+		{"pkg.txt", "common.txt"},
+		{"results.txt", "common.txt"},
+	}); err != nil {
+		log.Fatal(err)
+	}
+
+	var err error
 	db, err = database.New()
 	if err != nil {
 		log.Fatal(err)

@@ -1,38 +1,38 @@
-{{define "pkg.txt"}}{{with .pdoc}}PACKAGE{{if .Name}}
+{{define "ROOT"}}{{with .pdoc}}PACKAGE{{if .Name}}
 
 package {{.Name}}
     import "{{.ImportPath}}"
 
-{{.Doc|commentText}}
+{{.Doc|comment}}
 {{if .Consts}}
 CONSTANTS
 
 {{range .Consts}}{{.Decl.Text}}
-{{.Doc|commentText}}{{end}}
+{{.Doc|comment}}{{end}}
 {{end}}{{if .Vars}}
 VARIABLES
 
 {{range .Vars}}{{.Decl.Text}}
-{{.Doc|commentText}}{{end}}
+{{.Doc|comment}}{{end}}
 {{end}}{{if .Funcs}}
 FUNCTIONS
 
 {{range .Funcs}}{{.Decl.Text}}
-{{.Doc|commentText}}
+{{.Doc|comment}}
 {{end}}{{end}}{{if .Types}}
 TYPES
 
 {{range .Types}}{{.Decl.Text}}
-{{.Doc|commentText}}
+{{.Doc|comment}}
 {{range .Consts}}{{.Decl.Text}}
-{{.Doc|commentText}}
+{{.Doc|comment}}
 {{end}}{{range .Vars}}{{.Decl.Text}}
-{{.Doc|commentText}}
+{{.Doc|comment}}
 {{end}}{{range .Funcs}}{{.Decl.Text}}
-{{.Doc|commentText}}
+{{.Doc|comment}}
 {{end}}{{range .Methods}}{{.Decl.Text}}
-{{.Doc|commentText}}
+{{.Doc|comment}}
 {{end}}{{end}}
 {{end}}
-{{template "SubdirsText" $}}
+{{template "Subdirs" $}}
 {{end}}{{end}}{{end}}
