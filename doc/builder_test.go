@@ -33,3 +33,41 @@ func TestBadSynopsis(t *testing.T) {
 		}
 	}
 }
+
+const readme = `
+    $ go get github.com/user/repo/pkg1
+    [foo](http://gopkgdoc.appspot.com/pkg/github.com/user/repo/pkg2)
+    [foo](http://go.pkgdoc.org/github.com/user/repo/pkg3)
+    [foo](http://godoc.org/github.com/user/repo/pkg4)
+    <http://go.pkgdoc.org/github.com/user/repo/pkg5>
+    [foo](http://godoc.org/github.com/user/repo/pkg6#Export)
+    'go get example.org/package1' will install package1.
+    (http://go.pkgdoc.org/example.org/package2 "Package2's documentation on GoPkgDoc").
+    import "example.org/package3"
+`
+
+var expectedReferences = []string{
+	"github.com/user/repo/pkg1",
+	"github.com/user/repo/pkg2",
+	"github.com/user/repo/pkg3",
+	"github.com/user/repo/pkg4",
+	"github.com/user/repo/pkg5",
+	"github.com/user/repo/pkg6",
+	"example.org/package1",
+	"example.org/package2",
+	"example.org/package3",
+}
+
+func TestReferences(t *testing.T) {
+	references := make(map[string]bool)
+	addReferences(references, []byte(readme))
+	for _, r := range expectedReferences {
+		if !references[r] {
+			t.Errorf("missing %s", r)
+		}
+		delete(references, r)
+	}
+	for r := range references {
+		t.Errorf("extra %s", r)
+	}
+}

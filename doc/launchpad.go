@@ -69,12 +69,11 @@ func getLaunchpadDoc(client *http.Client, match map[string]string, savedEtag str
 		if err != nil {
 			return nil, err
 		}
-		if !strings.HasPrefix(hdr.Name, dirPrefix) ||
-			!isDocFile(hdr.Name) {
+		if !strings.HasPrefix(hdr.Name, dirPrefix) {
 			continue
 		}
 		inTree = true
-		if d, f := path.Split(hdr.Name); d == dirPrefix {
+		if d, f := path.Split(hdr.Name); d == dirPrefix && isDocFile(f) {
 			b, err := ioutil.ReadAll(tr)
 			if err != nil {
 				return nil, err
@@ -99,6 +98,7 @@ func getLaunchpadDoc(client *http.Client, match map[string]string, savedEtag str
 			ProjectURL:  expand("https://launchpad.net/{repo}/", match),
 			BrowseURL:   expand("http://bazaar.launchpad.net/+branch/{repo}/view/head:{dir}/", match),
 			Etag:        etag,
+			VCS:         "bzr",
 		},
 	}
 	return b.build(files)

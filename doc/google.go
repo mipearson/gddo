@@ -95,6 +95,7 @@ func getGoogleDoc(client *http.Client, match map[string]string, savedEtag string
 			ProjectURL:  expand("https://code.google.com/p/{repo}/", match),
 			BrowseURL:   expand("http://code.google.com/p/{repo}/source/browse{dir}/{query}", match),
 			Etag:        etag,
+			VCS:         match["vcs"],
 		},
 	}
 
@@ -143,6 +144,7 @@ func getStandardDoc(client *http.Client, importPath string, savedEtag string) (*
 			ProjectURL:  "https://code.google.com/p/go/",
 			BrowseURL:   "http://code.google.com/p/go/source/browse/src/pkg/" + importPath + "?name=release",
 			Etag:        etag,
+			VCS:         "hg",
 		},
 	}
 

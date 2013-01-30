@@ -1,3 +1,17 @@
+// Copyright 2011 Gary Burd
+//
+// Licensed under the Apache License, Version 2.0 (the "License"): you may
+// not use this file except in compliance with the License. You may obtain
+// a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+// WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+// License for the specific language governing permissions and limitations
+// under the License.
+
 package doc
 
 import (
@@ -8,7 +22,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"path"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -49,11 +63,15 @@ func expand(template string, match map[string]string, subs ...string) string {
 	return string(p)
 }
 
-// isDocFile returns true if a file with the path p should be included in the
+var readmePat = regexp.MustCompile(`^[Rr][Ee][Aa][Dd][Mm][Ee](?:$|\.)`)
+
+// isDocFile returns true if a file with name n should be included in the
 // documentation.
-func isDocFile(p string) bool {
-	n := path.Base(p)
-	return strings.HasSuffix(n, ".go") && len(n) > 0 && n[0] != '_' && n[0] != '.'
+func isDocFile(n string) bool {
+	if strings.HasSuffix(n, ".go") && n[0] != '_' && n[0] != '.' {
+		return true
+	}
+	return readmePat.MatchString(n)
 }
 
 // fetchFiles fetches the source files specified by the rawURL field in parallel.

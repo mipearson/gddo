@@ -83,6 +83,14 @@ func main() {
 	for _, i := range pdoc.TestImports {
 		fmt.Println("    ", i)
 	}
+	fmt.Println("XTestImports:")
+	for _, i := range pdoc.XTestImports {
+		fmt.Println("    ", i)
+	}
+	fmt.Println("References:")
+	for _, i := range pdoc.References {
+		fmt.Println("    ", i)
+	}
 	for _, c := range pdoc.Consts {
 		fmt.Println("Const:")
 		fmt.Println("    Decl:  ", indent(c.Decl.Text, 12))

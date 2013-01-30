@@ -218,6 +218,7 @@ func getVCS(client *http.Client, vcs, scheme, repo, dir, etagSaved string) (*Pac
 			ProjectURL:  "",
 			BrowseURL:   "",
 			Etag:        etag,
+			VCS:         vcs,
 		},
 	}
 

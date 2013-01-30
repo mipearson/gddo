@@ -73,8 +73,8 @@ func getBitbucketDoc(client *http.Client, match map[string]string, savedEtag str
 
 	var files []*source
 	for _, f := range directory.Files {
-		if isDocFile(f.Path) {
-			_, name := path.Split(f.Path)
+		_, name := path.Split(f.Path)
+		if isDocFile(name) {
 			files = append(files, &source{
 				name:      name,
 				browseURL: expand("https://bitbucket.org/{owner}/{repo}/src/{tag}/{0}", match, f.Path),
@@ -96,6 +96,7 @@ func getBitbucketDoc(client *http.Client, match map[string]string, savedEtag str
 			ProjectURL:  expand("https://bitbucket.org/{owner}/{repo}/", match),
 			BrowseURL:   expand("https://bitbucket.org/{owner}/{repo}/src/{tag}{dir}", match),
 			Etag:        etag,
+			VCS:         match["vcs"],
 		},
 	}
 

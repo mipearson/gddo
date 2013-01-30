@@ -115,6 +115,25 @@ Loop:
 	return s
 }
 
+var referencePat = regexp.MustCompile(`\b(?:go\s+get\s+|goinstall\s+|http://gopkgdoc\.appspot\.com/pkg/|http://go\.pkgdoc\.org/|http://godoc\.org/)([-a-zA-Z0-9~+_./]+)`)
+var quotedReferencePat = regexp.MustCompile(`"([-a-zA-Z0-9~+_./]+)"`)
+
+// addReferences adds packages referenced in plain text s.
+func addReferences(references map[string]bool, s []byte) {
+	for _, m := range referencePat.FindAllSubmatch(s, -1) {
+		p := string(m[1])
+		if IsValidRemotePath(p) {
+			references[p] = true
+		}
+	}
+	for _, m := range quotedReferencePat.FindAllSubmatch(s, -1) {
+		p := string(m[1])
+		if IsValidRemotePath(p) {
+			references[p] = true
+		}
+	}
+}
+
 // builder holds the state used when building the documentation.
 type builder struct {
 	lineFmt string
@@ -490,11 +509,11 @@ func (b *builder) readDir(dir string) ([]os.FileInfo, error) {
 	if dir != b.pkg.ImportPath {
 		panic("unexpected")
 	}
-	infos := make([]os.FileInfo, 0, len(b.srcs))
+	fis := make([]os.FileInfo, 0, len(b.srcs))
 	for _, src := range b.srcs {
-		infos = append(infos, src)
+		fis = append(fis, src)
 	}
-	return infos, nil
+	return fis, nil
 }
 
 func (b *builder) openFile(path string) (io.ReadCloser, error) {
@@ -507,7 +526,7 @@ func (b *builder) openFile(path string) (io.ReadCloser, error) {
 }
 
 // PackageVersion is modified when previously stored packages are invalid.
-const PackageVersion = "4"
+const PackageVersion = "5"
 
 type Package struct {
 	// The import path for this package.
@@ -524,6 +543,12 @@ type Package struct {
 
 	// Errors found when fetching or parsing this package.
 	Errors []string
+
+	// Packages referenced in README files.
+	References []string
+
+	// Version control system: git, hg, bzr, ...
+	VCS string
 
 	// The time this object was created.
 	Updated time.Time
@@ -567,25 +592,35 @@ type Package struct {
 	TestSourceSize int
 
 	// Imports
-	Imports     []string
-	TestImports []string
+	Imports      []string
+	TestImports  []string
+	XTestImports []string
 }
 
 func (b *builder) build(srcs []*source) (*Package, error) {
 
 	b.pkg.Updated = time.Now().UTC()
 
-	if len(srcs) == 0 {
+	references := make(map[string]bool)
+	b.srcs = make(map[string]*source)
+	for _, src := range srcs {
+		if strings.HasSuffix(src.name, ".go") {
+			b.srcs[src.name] = src
+		} else {
+			addReferences(references, src.data)
+		}
+	}
+
+	for r := range references {
+		b.pkg.References = append(b.pkg.References, r)
+	}
+
+	if len(b.srcs) == 0 {
 		return b.pkg, nil
 	}
 
 	b.fset = token.NewFileSet()
 	b.importPaths = make(map[string]map[string]string)
-
-	b.srcs = make(map[string]*source)
-	for _, src := range srcs {
-		b.srcs[src.name] = src
-	}
 
 	// Find the package and associated files.
 
@@ -670,6 +705,7 @@ func (b *builder) build(srcs []*source) (*Package, error) {
 
 	b.pkg.Imports = pkg.Imports
 	b.pkg.TestImports = pkg.TestImports
+	b.pkg.XTestImports = pkg.XTestImports
 
 	return b.pkg, nil
 }

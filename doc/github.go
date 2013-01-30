@@ -95,13 +95,11 @@ func getGithubDoc(client *http.Client, match map[string]string, savedEtag string
 	}
 	var files []*source
 	for _, node := range tree.Tree {
-		if node.Type != "blob" ||
-			!isDocFile(node.Path) ||
-			!strings.HasPrefix(node.Path, dirPrefix) {
+		if node.Type != "blob" || !strings.HasPrefix(node.Path, dirPrefix) {
 			continue
 		}
 		inTree = true
-		if d, f := path.Split(node.Path); d == dirPrefix {
+		if d, f := path.Split(node.Path); d == dirPrefix && isDocFile(f) {
 			files = append(files, &source{
 				name:      f,
 				browseURL: expand("https://github.com/{owner}/{repo}/blob/{tag}/{0}", match, node.Path),
@@ -132,6 +130,7 @@ func getGithubDoc(client *http.Client, match map[string]string, savedEtag string
 			ProjectURL:  expand("https://github.com/{owner}/{repo}", match),
 			BrowseURL:   browseURL,
 			Etag:        commit,
+			VCS:         "git",
 		},
 	}
 
