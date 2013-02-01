@@ -19,7 +19,7 @@
 //      terms: space separated search terms
 //      path: import path
 //      synopsis: synopsis
-//      glob: snappy compressed gob encoded doc.Package
+//      gob: snappy compressed gob encoded doc.Package
 //      rank: document search rank
 //      etag:
 //      kind: p=package, c=command, d=directory with no go files
@@ -388,6 +388,12 @@ func (db *Database) Get(path string) (*doc.Package, []Package, time.Time, error)
 	return pdoc, subdirs, lastCrawl, nil
 }
 
+func (db *Database) GetDoc(path string) (*doc.Package, time.Time, error) {
+	c := db.Pool.Get()
+	defer c.Close()
+	return db.getDoc(c, path)
+}
+
 var deleteScript = redis.NewScript(0, `
     local path = ARGV[1]
 
@@ -581,8 +587,15 @@ func (db *Database) Query(q string) ([]Package, error) {
 	return pkgs, err
 }
 
+type PackageInfo struct {
+	PDoc *doc.Package
+	Pkgs []Package
+	Rank float64
+	Kind string
+}
+
 // Do executes function f for each document in the database.
-func (db *Database) Do(f func(*doc.Package, []Package) error) error {
+func (db *Database) Do(f func(*PackageInfo) error) error {
 	c := db.Pool.Get()
 	defer c.Close()
 	keys, err := redis.Values(c.Do("KEYS", "pkg:*"))
@@ -590,58 +603,37 @@ func (db *Database) Do(f func(*doc.Package, []Package) error) error {
 		return err
 	}
 	for _, key := range keys {
-		p, err := redis.Bytes(c.Do("HGET", key, "gob"))
-		if err == redis.ErrNil {
-			continue
-		}
+		values, err := redis.Values(c.Do("HMGET", key, "gob", "rank", "kind"))
 		if err != nil {
 			return err
 		}
+
+		var (
+			pi PackageInfo
+			p  []byte
+		)
+
+		if _, err := redis.Scan(values, &p, &pi.Rank, &pi.Kind); err != nil {
+			return err
+		}
+
+		if p == nil {
+			continue
+		}
+
 		p, err = snappy.Decode(nil, p)
 		if err != nil {
 			return err
 		}
-		var pdoc doc.Package
-		if err := gob.NewDecoder(bytes.NewReader(p)).Decode(&pdoc); err != nil {
+
+		if err := gob.NewDecoder(bytes.NewReader(p)).Decode(&pi.PDoc); err != nil {
 			return err
 		}
-		pkgs, err := db.getSubdirs(c, pdoc.ImportPath, &pdoc)
+		pi.Pkgs, err = db.getSubdirs(c, pi.PDoc.ImportPath, pi.PDoc)
 		if err != nil {
 			return err
 		}
-		if err := f(&pdoc, pkgs); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// ProjectDo executes function f for each document in the database.
-func (db *Database) ProjectDo(f func(string, []*doc.Package) error) error {
-	c := db.Pool.Get()
-	defer c.Close()
-
-	keys, err := redis.Values(c.Do("KEYS", "index:project:*"))
-	if err != nil {
-		return err
-	}
-
-	var pdocs []*doc.Package
-	for _, key := range keys {
-		projectRoot := string(key.([]byte)[len("index:project:"):])
-		pkgs, err := db.Project(projectRoot)
-		if err != nil {
-			return err
-		}
-		pdocs = pdocs[:0]
-		for _, pkg := range pkgs {
-			pdoc, _, err := db.getDoc(c, pkg.Path)
-			if err != nil {
-				return err
-			}
-			pdocs = append(pdocs, pdoc)
-		}
-		if err := f(projectRoot, pdocs); err != nil {
+		if err := f(&pi); err != nil {
 			return err
 		}
 	}

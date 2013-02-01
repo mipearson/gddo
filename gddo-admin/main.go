@@ -37,6 +37,8 @@ func (c *command) printUsage() {
 var commands = []*command{
 	blockCommand,
 	reindexCommand,
+	pruneCommand,
+	deleteCommand,
 }
 
 func printUsage() {

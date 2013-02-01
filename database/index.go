@@ -92,8 +92,14 @@ func documentTerms(pdoc *doc.Package, rank float64) []string {
 }
 
 func documentRank(pdoc *doc.Package) float64 {
-	if pdoc.Name == "" || pdoc.IsCmd || len(pdoc.Errors) > 0 {
+	if pdoc.Name == "" || pdoc.IsCmd || len(pdoc.Errors) > 0 || strings.HasSuffix(pdoc.ImportPath, ".go") {
 		return 0
+	}
+
+	for _, p := range pdoc.Imports {
+		if strings.HasSuffix(p, ".go") {
+			return 0
+		}
 	}
 
 	if !pdoc.Truncated &&

@@ -1,4 +1,4 @@
-// Copyright 2012 Gary Burd
+// Copyright 2013 Gary Burd
 //
 // Licensed under the Apache License, Version 2.0 (the "License"): you may
 // not use this file except in compliance with the License. You may obtain
@@ -20,14 +20,14 @@ import (
 	"os"
 )
 
-var reindexCommand = &command{
-	name:  "reindex",
-	run:   reindex,
-	usage: "reindex",
+var deleteCommand = &command{
+	name:  "delete",
+	run:   del,
+	usage: "delete path",
 }
 
-func reindex(c *command) {
-	if len(c.flag.Args()) != 0 {
+func del(c *command) {
+	if len(c.flag.Args()) != 1 {
 		c.printUsage()
 		os.Exit(1)
 	}
@@ -35,13 +35,7 @@ func reindex(c *command) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	var n int
-	err = db.Do(func(pi *database.PackageInfo) error {
-		n += 1
-		return db.Put(pi.PDoc)
-	})
-	if err != nil {
+	if err := db.Delete(c.flag.Args()[0]); err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("Updated %d documents", n)
 }
