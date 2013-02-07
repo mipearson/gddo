@@ -23,8 +23,9 @@ Development Environment Setup
 - Install [Go](http://golang.org/doc/install) and configure [GOPATH](http://golang.org/doc/code.html).
 - Install and run the server:
 
-    go get github.com/garyburd/gopkgdoc/gddo-server
-    gddo-server
+        go get github.com/garyburd/gopkgdoc/gddo-server
+        cd `go list -f '{{.Dir}}' github.com/garyburd/gopkgdoc/gddo-server`
+        gddo-server
 
 License
 -------

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"go/build"
 	"io"
 	"io/ioutil"
 	"log"
@@ -31,6 +32,7 @@ import (
 	"regexp"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/garyburd/gopkgdoc/database"
@@ -119,8 +121,7 @@ func isRobot(req *web.Request) bool {
 }
 
 func servePackage(resp web.Response, req *web.Request) error {
-	p := path.Clean(req.URL.Path)
-	if p != req.URL.Path {
+	if p := path.Clean(req.URL.Path); p != req.URL.Path {
 		return web.Redirect(resp, req, p, 301, nil)
 	}
 
@@ -270,7 +271,7 @@ func serveAbout(resp web.Response, req *web.Request) error {
 	return executeTemplate(resp, "about.html", 200, map[string]interface{}{"Host": req.URL.Host})
 }
 
-func handleError(resp web.Response, req *web.Request, status int, err error, r interface{}) {
+func logError(req *web.Request, err error, r interface{}) {
 	if err != nil {
 		var buf bytes.Buffer
 		fmt.Fprintf(&buf, "Error serving %s: %v\n", req.URL, err)
@@ -280,6 +281,10 @@ func handleError(resp web.Response, req *web.Request, status int, err error, r i
 		}
 		log.Print(buf.String())
 	}
+}
+
+func handleError(resp web.Response, req *web.Request, status int, err error, r interface{}) {
+	logError(req, err, r)
 	switch status {
 	case 0:
 		// nothing to do
@@ -298,10 +303,47 @@ func handleError(resp web.Response, req *web.Request, status int, err error, r i
 }
 
 var (
+	presMu        sync.Mutex
+	presentations = map[string]*doc.Presentation{}
+)
+
+func servePresentation(resp web.Response, req *web.Request) error {
+	if p := path.Clean(req.URL.Path); p != req.URL.Path {
+		return web.Redirect(resp, req, p, 301, nil)
+	}
+	p := req.RouteVars["path"]
+	presMu.Lock()
+	pres := presentations[p]
+	presMu.Unlock()
+
+	if pres == nil || time.Since(pres.Updated) > 30*time.Minute {
+		var err error
+		log.Println("Fetch presentation ", p)
+		pres, err = doc.GetPresentation(httpClient, p)
+		if err != nil {
+			return err
+		}
+		presMu.Lock()
+		presentations[p] = pres
+		presMu.Unlock()
+	}
+
+	return executeTemplate(resp, path.Ext(p)[1:]+".html", 200, pres)
+}
+
+func defaultBase(path string) string {
+	p, err := build.Default.Import(path, "", build.FindOnly)
+	if err != nil {
+		return "."
+	}
+	return p.Dir
+}
+
+var (
 	db              *database.Database
 	robot           = flag.Bool("robot", false, "Robot mode")
-	templateDir     = flag.String("template", "template", "Template directory.")
-	staticDir       = flag.String("static", "static", "Static file directory.")
+	baseDir         = flag.String("base", defaultBase("github.com/garyburd/gopkgdoc/gddo-server"), "Base directory for templates and static files.")
+	presentBaseDir  = flag.String("presentBase", defaultBase("code.google.com/p/go.talks/present"), "Base directory for templates and static files.")
 	getTimeout      = flag.Duration("get_timeout", 8*time.Second, "Time to wait for package update from the VCS.")
 	firstGetTimeout = flag.Duration("first_get_timeout", 5*time.Second, "Time to wait for first fetch of package from the VCS.")
 	maxAge          = flag.Duration("max_age", 24*time.Hour, "Crawl package documents older than this age.")
@@ -376,6 +418,13 @@ func main() {
 		log.Fatal(err)
 	}
 
+	if err := parsePresentTemplates([][]string{
+		{"article.html", "presentCommon.html"},
+		{"slide.html", "presentCommon.html"},
+	}); err != nil {
+		log.Fatal(err)
+	}
+
 	var err error
 	db, err = database.New()
 	if err != nil {
@@ -402,16 +451,18 @@ func main() {
 	r.Add("/-/go").GetFunc(serveGoIndex)
 	r.Add("/-/index").GetFunc(serveIndex)
 	r.Add("/-/refresh").PostFunc(serveRefresh)
-	r.Add("/-/static/<path:.*>").Get(web.DirectoryHandler(*staticDir, sfo))
-	r.Add("/robots.txt").Get(web.FileHandler(filepath.Join(*staticDir, "robots.txt"), nil))
-	r.Add("/humans.txt").Get(web.FileHandler(filepath.Join(*staticDir, "humans.txt"), nil))
-	r.Add("/favicon.ico").Get(web.FileHandler(filepath.Join(*staticDir, "favicon.ico"), nil))
-	r.Add("/google3d2f3cd4cc2bb44b.html").Get(web.FileHandler(filepath.Join(*staticDir, "google3d2f3cd4cc2bb44b.html"), nil))
+	r.Add("/-/static/<path:.*>").Get(web.DirectoryHandler(filepath.Join(*baseDir, "static"), sfo))
+	r.Add("/-/talk/<path:.+>").GetFunc(servePresentation)
+	r.Add("/robots.txt").Get(web.FileHandler(filepath.Join(*baseDir, "static", "robots.txt"), nil))
+	r.Add("/humans.txt").Get(web.FileHandler(filepath.Join(*baseDir, "static", "humans.txt"), nil))
+	r.Add("/favicon.ico").Get(web.FileHandler(filepath.Join(*baseDir, "static", "favicon.ico"), nil))
+	r.Add("/google3d2f3cd4cc2bb44b.html").Get(web.FileHandler(filepath.Join(*baseDir, "static", "google3d2f3cd4cc2bb44b.html"), nil))
 	r.Add("/about").Get(web.RedirectHandler("/-/about", 301))
 	r.Add("/a/index").Get(web.RedirectHandler("/-/index", 301))
 	r.Add("/C").Get(web.RedirectHandler("http://golang.org/doc/articles/c_go_cgo.html", 301))
-	r.Add("/<path:.*>").GetFunc(servePackage)
+	r.Add("/<path:.+>").GetFunc(servePackage)
 	h := web.ErrorHandler(handleError, web.FormAndCookieHandler(1000, false, r))
+
 	listener, err := net.Listen("tcp", *httpAddr)
 	if err != nil {
 		log.Fatal("Listen", err)

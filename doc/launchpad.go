@@ -31,7 +31,7 @@ var launchpadPattern = regexp.MustCompile(`^launchpad\.net/(?P<repo>(?P<project>
 func getLaunchpadDoc(client *http.Client, match map[string]string, savedEtag string) (*Package, error) {
 
 	if match["project"] != "" && match["series"] != "" {
-		rc, err := httpGet(client, expand("https://code.launchpad.net/{project}{series}/.bzr/branch-format", match))
+		rc, err := httpGet(client, expand("https://code.launchpad.net/{project}{series}/.bzr/branch-format", match), nil)
 		switch {
 		case err == nil:
 			rc.Close()

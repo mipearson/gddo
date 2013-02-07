@@ -38,6 +38,8 @@ import (
 	ttemp "text/template"
 	"time"
 
+	"code.google.com/p/go.talks/pkg/present"
+
 	"github.com/garyburd/gopkgdoc/doc"
 	"github.com/garyburd/indigo/web"
 )
@@ -58,7 +60,7 @@ func staticFileFn(p string) htemp.URL {
 	staticMutex.RUnlock()
 
 	if !ok {
-		fp := filepath.Join(*staticDir, filepath.FromSlash(p))
+		fp := filepath.Join(*baseDir, "static", filepath.FromSlash(p))
 		b, err := ioutil.ReadFile(fp)
 		if err != nil {
 			log.Printf("WARNING could not read static file %s", fp)
@@ -362,6 +364,18 @@ func gaAccountFn() string {
 	return secrets.GAAccount
 }
 
+func elemFn(t *htemp.Template, e present.Elem) (htemp.HTML, error) {
+	var buf bytes.Buffer
+	if err := t.ExecuteTemplate(&buf, e.TemplateName(), e); err != nil {
+		return "", err
+	}
+	return htemp.HTML(buf.Bytes()), nil
+}
+
+func headerLevelFn(e present.Section) int {
+	return len(e.Number) + 1
+}
+
 var contentTypes = map[string]string{
 	".html": "text/html; charset=utf-8",
 	".txt":  "text/plain; charset=utf-8",
@@ -383,6 +397,14 @@ func executeTemplate(resp web.Response, name string, status int, data interface{
 var templates = map[string]interface {
 	Execute(io.Writer, interface{}) error
 }{}
+
+func joinTemplateDir(files []string) []string {
+	result := make([]string, len(files))
+	for i := range files {
+		result[i] = filepath.Join(*baseDir, "template", files[i])
+	}
+	return result
+}
 
 func parseHTMLTemplates(sets [][]string) error {
 	for _, set := range sets {
@@ -409,41 +431,54 @@ func parseHTMLTemplates(sets [][]string) error {
 			"staticFile":        staticFileFn,
 			"templateName":      func() string { return templateName },
 		})
-		var files []string
-		for _, n := range set {
-			files = append(files, filepath.Join(*templateDir, n))
-		}
-		if _, err := t.ParseFiles(files...); err != nil {
+		if _, err := t.ParseFiles(joinTemplateDir(set)...); err != nil {
 			return err
 		}
 		t = t.Lookup("ROOT")
 		if t == nil {
-			return fmt.Errorf("ROOT template not found in %v", files)
+			return fmt.Errorf("ROOT template not found in %v", set)
 		}
-		templates[templateName] = t
+		templates[set[0]] = t
 	}
 	return nil
 }
 
 func parseTextTemplates(sets [][]string) error {
 	for _, set := range sets {
-		templateName := set[0]
 		t := ttemp.New("")
 		t.Funcs(ttemp.FuncMap{
 			"comment": commentTextFn,
 		})
-		var files []string
-		for _, n := range set {
-			files = append(files, filepath.Join(*templateDir, n))
-		}
-		if _, err := t.ParseFiles(files...); err != nil {
+		if _, err := t.ParseFiles(joinTemplateDir(set)...); err != nil {
 			return err
 		}
 		t = t.Lookup("ROOT")
 		if t == nil {
-			return fmt.Errorf("ROOT template not found in %v", files)
+			return fmt.Errorf("ROOT template not found in %v", set)
 		}
-		templates[templateName] = t
+		templates[set[0]] = t
+	}
+	return nil
+}
+
+func parsePresentTemplates(sets [][]string) error {
+	for _, set := range sets {
+		t := present.Template()
+		t.Funcs(htemp.FuncMap{
+			"gaAccount":    gaAccountFn,
+			"staticFile":   staticFileFn,
+			"elem":         func(e present.Elem) (htemp.HTML, error) { return elemFn(t, e) },
+			"headerLevel":  headerLevelFn,
+			"relativeTime": relativeTime,
+		})
+		if _, err := t.ParseFiles(joinTemplateDir(set)...); err != nil {
+			return err
+		}
+		t = t.Lookup("ROOT")
+		if t == nil {
+			return fmt.Errorf("ROOT template not found in %v", set)
+		}
+		templates[set[0]] = t
 	}
 	return nil
 }

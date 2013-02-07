@@ -16,7 +16,9 @@ package doc
 
 import (
 	"errors"
+	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 )
@@ -30,28 +32,11 @@ var (
 )
 
 func getGoogleDoc(client *http.Client, match map[string]string, savedEtag string) (*Package, error) {
-
-	if s := match["subrepo"]; s != "" {
-		match["dot"] = "."
-		match["query"] = "?repo=" + s
-	} else {
-		match["dot"] = ""
-		match["query"] = ""
-	}
-
+	setupGoogleMatch(match)
 	if m := googleEtagRe.FindStringSubmatch(savedEtag); m != nil {
 		match["vcs"] = m[1]
-	} else {
-		// Scrape the HTML project page to find the VCS.
-		p, err := httpGetBytes(client, expand("http://code.google.com/p/{repo}/source/checkout", match))
-		if err != nil {
-			return nil, err
-		}
-		if m := googleRepoRe.FindSubmatch(p); m != nil {
-			match["vcs"] = string(m[1])
-		} else {
-			return nil, NotFoundError{"Could not VCS on Google Code project page."}
-		}
+	} else if err := getGoogleVCS(client, match); err != nil {
+		return nil, err
 	}
 
 	// Scrape the repo browser to find the project revision and individual Go files.
@@ -102,6 +87,30 @@ func getGoogleDoc(client *http.Client, match map[string]string, savedEtag string
 	return b.build(files)
 }
 
+func setupGoogleMatch(match map[string]string) {
+	if s := match["subrepo"]; s != "" {
+		match["dot"] = "."
+		match["query"] = "?repo=" + s
+	} else {
+		match["dot"] = ""
+		match["query"] = ""
+	}
+}
+
+func getGoogleVCS(client *http.Client, match map[string]string) error {
+	// Scrape the HTML project page to find the VCS.
+	p, err := httpGetBytes(client, expand("http://code.google.com/p/{repo}/source/checkout", match))
+	if err != nil {
+		return err
+	}
+	m := googleRepoRe.FindSubmatch(p)
+	if m == nil {
+		return NotFoundError{"Could not VCS on Google Code project page."}
+	}
+	match["vcs"] = string(m[1])
+	return nil
+}
+
 func getStandardDoc(client *http.Client, importPath string, savedEtag string) (*Package, error) {
 
 	p, err := httpGetBytes(client, "http://go.googlecode.com/hg-history/release/src/pkg/"+importPath+"/")
@@ -149,4 +158,43 @@ func getStandardDoc(client *http.Client, importPath string, savedEtag string) (*
 	}
 
 	return b.build(files)
+}
+
+func getGooglePresentation(client *http.Client, match map[string]string) (*Presentation, error) {
+	setupGoogleMatch(match)
+	if err := getGoogleVCS(client, match); err != nil {
+		return nil, err
+	}
+
+	rawBase, err := url.Parse(expand("http://{subrepo}{dot}{repo}.googlecode.com/{vcs}{dir}/", match))
+	if err != nil {
+		return nil, err
+	}
+
+	p, err := httpGet(client, expand("http://{subrepo}{dot}{repo}.googlecode.com/{vcs}{dir}/{file}", match), nil)
+	if err != nil {
+		return nil, err
+	}
+	defer p.Close()
+
+	b := &presBuilder{
+		pres:    &Presentation{},
+		content: p,
+		openFile: func(fname string) (io.ReadCloser, error) {
+			u, err := rawBase.Parse(fname)
+			if err != nil {
+				return nil, err
+			}
+			return httpGet(client, u.String(), nil)
+		},
+		resolveURL: func(fname string) string {
+			u, err := rawBase.Parse(fname)
+			if err != nil {
+				return "/-/notfound"
+			}
+			return u.String()
+		},
+	}
+
+	return b.build()
 }

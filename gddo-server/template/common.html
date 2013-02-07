@@ -52,11 +52,11 @@
   {{if .pdoc.ProjectRoot}}<a href="{{.pdoc.ProjectURL}}"><strong>{{.pdoc.ProjectName|html}}:</strong></a>{{else}}<a href="/-/go">Go:</a>{{end}}
   {{breadcrumbs .pdoc (templateName)}}
   {{if and .pdoc.Name (equal templateName "pkg.html")}}
-  <div class="pull-right">
+  <span class="pull-right">
     <a href="#_index">Index</a> 
     <span class="muted">|</span> <a href="#_files">Files</a>
     {{if .pkgs}}<span class="muted">|</span> <a href="#_subdirs">Directories</a>{{end}}
-  </div>
+  </span>
   {{end}}
 </div>{{end}}
 

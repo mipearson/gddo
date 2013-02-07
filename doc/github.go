@@ -15,7 +15,9 @@
 package doc
 
 import (
+	"io"
 	"net/http"
+	"net/url"
 	"path"
 	"regexp"
 	"strings"
@@ -135,4 +137,46 @@ func getGithubDoc(client *http.Client, match map[string]string, savedEtag string
 	}
 
 	return b.build(files)
+}
+
+func getGithubPresentation(client *http.Client, match map[string]string) (*Presentation, error) {
+
+	match["cred"] = githubCred
+
+	p, err := httpGet(client, expand("https://api.github.com/repos/{owner}/{repo}/contents{dir}/{file}?{cred}", match), githubRawHeader)
+	if err != nil {
+		return nil, err
+	}
+	defer p.Close()
+
+	apiBase, err := url.Parse(expand("https://api.github.com/repos/{owner}/{repo}/contents{dir}/?{cred}", match))
+	if err != nil {
+		return nil, err
+	}
+	rawBase, err := url.Parse(expand("https://raw.github.com/{owner}/{repo}/master{dir}/", match))
+	if err != nil {
+		return nil, err
+	}
+
+	b := &presBuilder{
+		pres:    &Presentation{},
+		content: p,
+		openFile: func(fname string) (io.ReadCloser, error) {
+			u, err := apiBase.Parse(fname)
+			if err != nil {
+				return nil, err
+			}
+			u.RawQuery = match["cred"]
+			return httpGet(client, u.String(), githubRawHeader)
+		},
+		resolveURL: func(fname string) string {
+			u, err := rawBase.Parse(fname)
+			if err != nil {
+				return "/-/notfound"
+			}
+			return u.String()
+		},
+	}
+
+	return b.build()
 }

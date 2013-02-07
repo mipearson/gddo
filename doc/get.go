@@ -53,18 +53,19 @@ var (
 
 // service represents a source code control service.
 type service struct {
-	pattern *regexp.Regexp
-	getDoc  func(*http.Client, map[string]string, string) (*Package, error)
-	prefix  string
+	pattern         *regexp.Regexp
+	prefix          string
+	get             func(*http.Client, map[string]string, string) (*Package, error)
+	getPresentation func(*http.Client, map[string]string) (*Presentation, error)
 }
 
 // services is the list of source code control services handled by gopkgdoc.
 var services = []*service{
-	{githubPattern, getGithubDoc, "github.com/"},
-	{googlePattern, getGoogleDoc, "code.google.com/"},
-	{bitbucketPattern, getBitbucketDoc, "bitbucket.org/"},
-	{launchpadPattern, getLaunchpadDoc, "launchpad.net/"},
-	{generalPattern, getGeneralDoc, ""},
+	{githubPattern, "github.com/", getGithubDoc, getGithubPresentation},
+	{googlePattern, "code.google.com/", getGoogleDoc, getGooglePresentation},
+	{bitbucketPattern, "bitbucket.org/", getBitbucketDoc, nil},
+	{launchpadPattern, "launchpad.net/", getLaunchpadDoc, nil},
+	{generalPattern, "", getGeneralDoc, nil},
 }
 
 func attrValue(attrs []xml.Attr, name string) string {
@@ -199,7 +200,7 @@ func getGeneralDoc(client *http.Client, match map[string]string, etag string) (*
 // returns errNoMatch if the import path is not recognized.
 func getStatic(client *http.Client, importPath string, etag string) (*Package, error) {
 	for _, s := range services {
-		if !strings.HasPrefix(importPath, s.prefix) {
+		if s.get == nil || !strings.HasPrefix(importPath, s.prefix) {
 			continue
 		}
 		m := s.pattern.FindStringSubmatch(importPath)
@@ -215,7 +216,7 @@ func getStatic(client *http.Client, importPath string, etag string) (*Package, e
 				match[n] = m[i]
 			}
 		}
-		return s.getDoc(client, match, etag)
+		return s.get(client, match, etag)
 	}
 	return nil, errNoMatch
 }
@@ -251,4 +252,35 @@ func Get(client *http.Client, importPath string, etag string) (pdoc *Package, er
 	}
 
 	return pdoc, err
+}
+
+// GetPresentation gets a presentation from the the given path.
+func GetPresentation(client *http.Client, importPath string) (*Presentation, error) {
+	ext := path.Ext(importPath)
+	if ext != ".slide" && ext != ".article" {
+		return nil, NotFoundError{"unknown file extension."}
+	}
+
+	importPath, file := path.Split(importPath)
+	importPath = strings.TrimSuffix(importPath, "/")
+	for _, s := range services {
+		if s.getPresentation == nil || !strings.HasPrefix(importPath, s.prefix) {
+			continue
+		}
+		m := s.pattern.FindStringSubmatch(importPath)
+		if m == nil {
+			if s.prefix != "" {
+				return nil, NotFoundError{"path prefix matches known service, but regexp does not."}
+			}
+			continue
+		}
+		match := map[string]string{"importPath": importPath, "file": file}
+		for i, n := range s.pattern.SubexpNames() {
+			if n != "" {
+				match[n] = m[i]
+			}
+		}
+		return s.getPresentation(client, match)
+	}
+	return nil, errNoMatch
 }

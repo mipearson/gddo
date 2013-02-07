@@ -34,8 +34,9 @@ func indent(s string, n int) string {
 }
 
 var (
-	etag  = flag.String("etag", "", "Etag")
-	local = flag.Bool("local", false, "Get package from local directory.")
+	etag    = flag.String("etag", "", "Etag")
+	local   = flag.Bool("local", false, "Get package from local directory.")
+	present = flag.Bool("present", false, "Get presentation.")
 )
 
 func main() {
@@ -43,14 +44,22 @@ func main() {
 	if len(flag.Args()) != 1 {
 		log.Fatal("Usage: go run print.go importPath")
 	}
+	if *present {
+		printPresentation(flag.Args()[0])
+	} else {
+		printPackage(flag.Args()[0])
+	}
+}
+
+func printPackage(path string) {
 	var (
 		pdoc *doc.Package
 		err  error
 	)
 	if *local {
-		pdoc, err = doc.GetDir(flag.Args()[0])
+		pdoc, err = doc.GetDir(path)
 	} else {
-		pdoc, err = doc.Get(http.DefaultClient, flag.Args()[0], *etag)
+		pdoc, err = doc.Get(http.DefaultClient, path, *etag)
 	}
 	if err != nil {
 		log.Fatal(err)
@@ -131,4 +140,15 @@ func main() {
 			fmt.Println("        Examples:", len(m.Examples))
 		}
 	}
+}
+
+func printPresentation(path string) {
+	pres, err := doc.GetPresentation(http.DefaultClient, path)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("Doc:  ", pres.Doc)
+	fmt.Println("Kind: ", pres.Kind)
+	fmt.Println("Name: ", pres.Name)
+	fmt.Println("URL:  ", pres.URL)
 }

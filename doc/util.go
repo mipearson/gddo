@@ -115,10 +115,13 @@ func fetchFiles(client *http.Client, files []*source, header http.Header) error 
 
 // httpGet gets the specified resource. ErrNotFound is returned if the
 // server responds with status 404.
-func httpGet(client *http.Client, url string) (io.ReadCloser, error) {
+func httpGet(client *http.Client, url string, header http.Header) (io.ReadCloser, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
+	}
+	for k, vs := range header {
+		req.Header[k] = vs
 	}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -137,7 +140,7 @@ func httpGet(client *http.Client, url string) (io.ReadCloser, error) {
 }
 
 func httpGetJSON(client *http.Client, url string, v interface{}) error {
-	rc, err := httpGet(client, url)
+	rc, err := httpGet(client, url, nil)
 	if err != nil {
 		return err
 	}
@@ -149,10 +152,10 @@ func httpGetJSON(client *http.Client, url string, v interface{}) error {
 	return err
 }
 
-// httpGet gets the specified resource. ErrNotFound is returned if the
-// server responds with status 404.
+// httpGet gets the specified resource. ErrNotFound is returned if the server
+// responds with status 404.
 func httpGetBytes(client *http.Client, url string) ([]byte, error) {
-	rc, err := httpGet(client, url)
+	rc, err := httpGet(client, url, nil)
 	if err != nil {
 		return nil, err
 	}

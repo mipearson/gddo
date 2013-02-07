@@ -1,0 +1,21 @@
+{{define "Head"}}<title>{{.Doc.Title}}</title>{{end}}
+
+{{define "Body"}}
+<h1>{{.Doc.Title}}</h1>{{with .Doc.Subtitle}}<p class="lead">{{.}}{{end}}
+
+{{range .Doc.Sections}}
+  {{elem .}}
+{{end}}
+
+<h2>Authors</h2>
+{{range .Doc.Authors}}
+  <div class="author">
+  {{range .Elem}}{{elem .}}{{end}}
+  </div>
+{{end}}
+    
+{{end}}
+
+{{define "newline"}}
+{{/* No automatic line break. Paragraphs are free-form. */}}
+{{end}} 
