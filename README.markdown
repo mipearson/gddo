@@ -20,11 +20,10 @@ Development Environment Setup
 -----------------------------
 
 - Install and run [Redis 2.6.x](http://redis.io/download). The redis.conf file included in the Redis distribution is suitable for development.
-- Install [Go](http://golang.org/doc/install) and configure [GOPATH](http://golang.org/doc/code.html).
+- Install Go from source and update to tip.
 - Install and run the server:
 
         go get github.com/garyburd/gopkgdoc/gddo-server
-        cd `go list -f '{{.Dir}}' github.com/garyburd/gopkgdoc/gddo-server`
         gddo-server
 
 License

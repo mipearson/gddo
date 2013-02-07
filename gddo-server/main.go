@@ -22,6 +22,7 @@ import (
 	"flag"
 	"fmt"
 	"go/build"
+	"html/template"
 	"io"
 	"io/ioutil"
 	"log"
@@ -35,6 +36,7 @@ import (
 	"sync"
 	"time"
 
+	"code.google.com/p/go.talks/pkg/present"
 	"github.com/garyburd/gopkgdoc/database"
 	"github.com/garyburd/gopkgdoc/doc"
 	"github.com/garyburd/indigo/server"
@@ -328,7 +330,20 @@ func servePresentation(resp web.Response, req *web.Request) error {
 		presMu.Unlock()
 	}
 
-	return executeTemplate(resp, path.Ext(p)[1:]+".html", 200, pres)
+	t := presentTemplates[path.Ext(p)]
+	data := struct {
+		*present.Doc
+		Template    *template.Template
+		PlayEnabled bool
+	}{
+		pres.Doc,
+		t,
+		false,
+	}
+
+	return t.Execute(
+		resp.Start(web.StatusOK, web.Header{web.HeaderContentType: {"text/html; charset=utf8"}}),
+		&data)
 }
 
 func defaultBase(path string) string {
@@ -419,8 +434,8 @@ func main() {
 	}
 
 	if err := parsePresentTemplates([][]string{
-		{"article.html", "presentCommon.html"},
-		{"slide.html", "presentCommon.html"},
+		{".article", "article.tmpl", "action.tmpl"},
+		{".slide", "slides.tmpl", "action.tmpl"},
 	}); err != nil {
 		log.Fatal(err)
 	}
@@ -446,13 +461,21 @@ func main() {
 	}
 
 	r := web.NewRouter()
+	r.Add("/favicon.ico").Get(web.FileHandler(filepath.Join(*baseDir, "static", "favicon.ico"), nil))
+	r.Add("/static/<path:.*>").Get(web.DirectoryHandler(filepath.Join(*presentBaseDir, "static"), sfo))
+	r.Add("/play.js").Get(web.CatFilesHandler(sfo, filepath.Join(*presentBaseDir, "js"), "jquery.js", "playground.js"))
+	r.Add("/<path:.+>").GetFunc(servePresentation)
+
+	h := web.NewHostRouter()
+	h.Add("talks.<:.*>", r)
+
+	r = web.NewRouter()
 	r.Add("/").GetFunc(serveHome)
 	r.Add("/-/about").GetFunc(serveAbout)
 	r.Add("/-/go").GetFunc(serveGoIndex)
 	r.Add("/-/index").GetFunc(serveIndex)
 	r.Add("/-/refresh").PostFunc(serveRefresh)
 	r.Add("/-/static/<path:.*>").Get(web.DirectoryHandler(filepath.Join(*baseDir, "static"), sfo))
-	r.Add("/-/talk/<path:.+>").GetFunc(servePresentation)
 	r.Add("/robots.txt").Get(web.FileHandler(filepath.Join(*baseDir, "static", "robots.txt"), nil))
 	r.Add("/humans.txt").Get(web.FileHandler(filepath.Join(*baseDir, "static", "humans.txt"), nil))
 	r.Add("/favicon.ico").Get(web.FileHandler(filepath.Join(*baseDir, "static", "favicon.ico"), nil))
@@ -461,7 +484,8 @@ func main() {
 	r.Add("/a/index").Get(web.RedirectHandler("/-/index", 301))
 	r.Add("/C").Get(web.RedirectHandler("http://golang.org/doc/articles/c_go_cgo.html", 301))
 	r.Add("/<path:.+>").GetFunc(servePackage)
-	h := web.ErrorHandler(handleError, web.FormAndCookieHandler(1000, false, r))
+
+	h.Add("<:.*>", web.ErrorHandler(handleError, web.FormAndCookieHandler(1000, false, r)))
 
 	listener, err := net.Listen("tcp", *httpAddr)
 	if err != nil {

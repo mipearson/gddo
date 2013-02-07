@@ -398,10 +398,10 @@ var templates = map[string]interface {
 	Execute(io.Writer, interface{}) error
 }{}
 
-func joinTemplateDir(files []string) []string {
+func joinTemplateDir(baseDir string, files []string) []string {
 	result := make([]string, len(files))
 	for i := range files {
-		result[i] = filepath.Join(*baseDir, "template", files[i])
+		result[i] = filepath.Join(baseDir, "templates", files[i])
 	}
 	return result
 }
@@ -431,7 +431,7 @@ func parseHTMLTemplates(sets [][]string) error {
 			"staticFile":        staticFileFn,
 			"templateName":      func() string { return templateName },
 		})
-		if _, err := t.ParseFiles(joinTemplateDir(set)...); err != nil {
+		if _, err := t.ParseFiles(joinTemplateDir(*baseDir, set)...); err != nil {
 			return err
 		}
 		t = t.Lookup("ROOT")
@@ -449,7 +449,7 @@ func parseTextTemplates(sets [][]string) error {
 		t.Funcs(ttemp.FuncMap{
 			"comment": commentTextFn,
 		})
-		if _, err := t.ParseFiles(joinTemplateDir(set)...); err != nil {
+		if _, err := t.ParseFiles(joinTemplateDir(*baseDir, set)...); err != nil {
 			return err
 		}
 		t = t.Lookup("ROOT")
@@ -461,24 +461,19 @@ func parseTextTemplates(sets [][]string) error {
 	return nil
 }
 
+var presentTemplates = make(map[string]*htemp.Template)
+
 func parsePresentTemplates(sets [][]string) error {
 	for _, set := range sets {
 		t := present.Template()
-		t.Funcs(htemp.FuncMap{
-			"gaAccount":    gaAccountFn,
-			"staticFile":   staticFileFn,
-			"elem":         func(e present.Elem) (htemp.HTML, error) { return elemFn(t, e) },
-			"headerLevel":  headerLevelFn,
-			"relativeTime": relativeTime,
-		})
-		if _, err := t.ParseFiles(joinTemplateDir(set)...); err != nil {
+		if _, err := t.ParseFiles(joinTemplateDir(*presentBaseDir, set[1:])...); err != nil {
 			return err
 		}
-		t = t.Lookup("ROOT")
+		t = t.Lookup("root")
 		if t == nil {
-			return fmt.Errorf("ROOT template not found in %v", set)
+			return fmt.Errorf("root template not found in %v", set)
 		}
-		templates[set[0]] = t
+		presentTemplates[set[0]] = t
 	}
 	return nil
 }
