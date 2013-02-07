@@ -191,7 +191,7 @@ func servePackage(resp web.Response, req *web.Request) error {
 		}
 		template += templateExt(req)
 
-		return executeTemplate(resp, template, 200, map[string]interface{}{
+		return executeTemplate(resp, template, web.StatusOK, map[string]interface{}{
 			"pkgs":          pkgs,
 			"pdoc":          pdoc,
 			"importerCount": importerCount,
@@ -227,7 +227,7 @@ func serveGoIndex(resp web.Response, req *web.Request) error {
 	if err != nil {
 		return err
 	}
-	return executeTemplate(resp, "std.html", 200, map[string]interface{}{
+	return executeTemplate(resp, "std.html", web.StatusOK, map[string]interface{}{
 		"pkgs": pkgs,
 	})
 }
@@ -237,7 +237,7 @@ func serveIndex(resp web.Response, req *web.Request) error {
 	if err != nil {
 		return err
 	}
-	return executeTemplate(resp, "index.html", 200, map[string]interface{}{
+	return executeTemplate(resp, "index.html", web.StatusOK, map[string]interface{}{
 		"pkgs": pkgs,
 	})
 }
@@ -266,11 +266,15 @@ func serveHome(resp web.Response, req *web.Request) error {
 		return err
 	}
 
-	return executeTemplate(resp, "results"+templateExt(req), 200, map[string]interface{}{"q": q, "pkgs": pkgs})
+	return executeTemplate(resp, "results"+templateExt(req), web.StatusOK, map[string]interface{}{"q": q, "pkgs": pkgs})
 }
 
 func serveAbout(resp web.Response, req *web.Request) error {
-	return executeTemplate(resp, "about.html", 200, map[string]interface{}{"Host": req.URL.Host})
+	return executeTemplate(resp, "about.html", web.StatusOK, map[string]interface{}{"Host": req.URL.Host})
+}
+
+func serveBot(resp web.Response, req *web.Request) error {
+	return executeTemplate(resp, "bot.html", web.StatusOK, nil)
 }
 
 func logError(req *web.Request, err error, r interface{}) {
@@ -367,6 +371,7 @@ var (
 	popularInterval = flag.Duration("popular_interval", 0, "Google Analytics fetcher sleeps for this duration between updates. Zero disables updates.")
 	secretsPath     = flag.String("secrets", "secrets.json", "Path to file containing application ids and credentials for other services.")
 	secrets         struct {
+		UserAgent             string
 		GithubId              string
 		GithubSecret          string
 		GAAccount             string
@@ -389,6 +394,9 @@ func readSecrets() error {
 	if err = json.Unmarshal(b, &secrets); err != nil {
 		return err
 	}
+	if secrets.UserAgent != "" {
+		doc.SetUserAgent(secrets.UserAgent)
+	}
 	if secrets.GithubId != "" {
 		doc.SetGithubCredentials(secrets.GithubId, secrets.GithubSecret)
 	} else {
@@ -410,6 +418,7 @@ func main() {
 
 	if err := parseHTMLTemplates([][]string{
 		{"about.html", "common.html"},
+		{"bot.html", "common.html"},
 		{"cmd.html", "common.html"},
 		{"home.html", "common.html"},
 		{"importers.html", "common.html"},
@@ -472,6 +481,7 @@ func main() {
 	r = web.NewRouter()
 	r.Add("/").GetFunc(serveHome)
 	r.Add("/-/about").GetFunc(serveAbout)
+	r.Add("/-/bot").GetFunc(serveBot)
 	r.Add("/-/go").GetFunc(serveGoIndex)
 	r.Add("/-/index").GetFunc(serveIndex)
 	r.Add("/-/refresh").PostFunc(serveRefresh)

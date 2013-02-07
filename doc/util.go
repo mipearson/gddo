@@ -74,6 +74,12 @@ func isDocFile(n string) bool {
 	return readmePat.MatchString(n)
 }
 
+var userAgent = "go application"
+
+func SetUserAgent(ua string) {
+	userAgent = ua
+}
+
 // fetchFiles fetches the source files specified by the rawURL field in parallel.
 func fetchFiles(client *http.Client, files []*source, header http.Header) error {
 	ch := make(chan error, len(files))
@@ -84,6 +90,7 @@ func fetchFiles(client *http.Client, files []*source, header http.Header) error 
 				ch <- err
 				return
 			}
+			req.Header.Set("User-Agent", userAgent)
 			for k, vs := range header {
 				req.Header[k] = vs
 			}
@@ -120,6 +127,7 @@ func httpGet(client *http.Client, url string, header http.Header) (io.ReadCloser
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("User-Agent", userAgent)
 	for k, vs := range header {
 		req.Header[k] = vs
 	}
@@ -172,6 +180,7 @@ func httpGetBytesNoneMatch(client *http.Client, url string, etag string) ([]byte
 	if err != nil {
 		return nil, "", err
 	}
+	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("If-None-Match", `"`+etag+`"`)
 	resp, err := client.Do(req)
 	if err != nil {
