@@ -40,7 +40,7 @@ func getGoogleDoc(client *http.Client, match map[string]string, savedEtag string
 	}
 
 	// Scrape the repo browser to find the project revision and individual Go files.
-	p, err := httpGetBytes(client, expand("http://{subrepo}{dot}{repo}.googlecode.com/{vcs}{dir}/", match))
+	p, err := httpGetBytes(client, expand("http://{subrepo}{dot}{repo}.googlecode.com/{vcs}{dir}/", match), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +99,7 @@ func setupGoogleMatch(match map[string]string) {
 
 func getGoogleVCS(client *http.Client, match map[string]string) error {
 	// Scrape the HTML project page to find the VCS.
-	p, err := httpGetBytes(client, expand("http://code.google.com/p/{repo}/source/checkout", match))
+	p, err := httpGetBytes(client, expand("http://code.google.com/p/{repo}/source/checkout", match), nil)
 	if err != nil {
 		return err
 	}
@@ -113,7 +113,7 @@ func getGoogleVCS(client *http.Client, match map[string]string) error {
 
 func getStandardDoc(client *http.Client, importPath string, savedEtag string) (*Package, error) {
 
-	p, err := httpGetBytes(client, "http://go.googlecode.com/hg-history/release/src/pkg/"+importPath+"/")
+	p, err := httpGetBytes(client, "http://go.googlecode.com/hg-history/release/src/pkg/"+importPath+"/", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -177,15 +177,16 @@ func getGooglePresentation(client *http.Client, match map[string]string) (*Prese
 	}
 	defer p.Close()
 
+	gc := &httpGetCache{
+		base:   rawBase,
+		client: client,
+	}
+
 	b := &presBuilder{
 		pres:    &Presentation{},
 		content: p,
 		openFile: func(fname string) (io.ReadCloser, error) {
-			u, err := rawBase.Parse(fname)
-			if err != nil {
-				return nil, err
-			}
-			return httpGet(client, u.String(), nil)
+			return gc.get(fname)
 		},
 		resolveURL: func(fname string) string {
 			u, err := rawBase.Parse(fname)

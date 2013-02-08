@@ -47,6 +47,9 @@ func (b *presBuilder) resolveElem(e present.Elem) present.Elem {
 	case present.Iframe:
 		e.URL = b.resolveURL(e.URL)
 		return e
+	case present.HTML:
+		// TODO: sanitize HTML
+		e.HTML = "HTML not supported on godoc.org"
 	}
 	return e
 }

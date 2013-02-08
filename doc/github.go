@@ -158,16 +158,17 @@ func getGithubPresentation(client *http.Client, match map[string]string) (*Prese
 		return nil, err
 	}
 
+	gc := &httpGetCache{
+		base:   apiBase,
+		header: githubRawHeader,
+		client: client,
+	}
+
 	b := &presBuilder{
 		pres:    &Presentation{},
 		content: p,
 		openFile: func(fname string) (io.ReadCloser, error) {
-			u, err := apiBase.Parse(fname)
-			if err != nil {
-				return nil, err
-			}
-			u.RawQuery = match["cred"]
-			return httpGet(client, u.String(), githubRawHeader)
+			return gc.get(fname)
 		},
 		resolveURL: func(fname string) string {
 			u, err := rawBase.Parse(fname)

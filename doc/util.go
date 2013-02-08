@@ -15,6 +15,7 @@
 package doc
 
 import (
+	"bytes"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
@@ -22,6 +23,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -162,8 +164,8 @@ func httpGetJSON(client *http.Client, url string, v interface{}) error {
 
 // httpGet gets the specified resource. ErrNotFound is returned if the server
 // responds with status 404.
-func httpGetBytes(client *http.Client, url string) ([]byte, error) {
-	rc, err := httpGet(client, url, nil)
+func httpGetBytes(client *http.Client, url string, header http.Header) ([]byte, error) {
+	rc, err := httpGet(client, url, header)
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +215,7 @@ func httpGetBytesNoneMatch(client *http.Client, url string, etag string) ([]byte
 // server responds with status 404. ErrNotModified is returned if the
 // hash of the resource equals savedEtag.
 func httpGetBytesCompare(client *http.Client, url string, savedEtag string) ([]byte, string, error) {
-	p, err := httpGetBytes(client, url)
+	p, err := httpGetBytes(client, url, nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -224,4 +226,32 @@ func httpGetBytesCompare(client *http.Client, url string, savedEtag string) ([]b
 		err = ErrNotModified
 	}
 	return p, etag, err
+}
+
+type httpGetCache struct {
+	data   map[string][]byte
+	base   *url.URL
+	header http.Header
+	client *http.Client
+}
+
+func (gc *httpGetCache) get(fname string) (io.ReadCloser, error) {
+	if gc.data == nil {
+		gc.data = make(map[string][]byte)
+	}
+	u, err := gc.base.Parse(fname)
+	if err != nil {
+		return nil, err
+	}
+	u.RawQuery = gc.base.RawQuery
+	s := u.String()
+	p, found := gc.data[s]
+	if !found {
+		p, err = httpGetBytes(gc.client, s, gc.header)
+		if err != nil {
+			return nil, err
+		}
+		gc.data[s] = p
+	}
+	return ioutil.NopCloser(bytes.NewReader(p)), nil
 }

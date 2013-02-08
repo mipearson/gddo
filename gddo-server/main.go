@@ -27,6 +27,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -308,6 +309,23 @@ func handleError(resp web.Response, req *web.Request, status int, err error, r i
 	}
 }
 
+func handleTalksError(resp web.Response, req *web.Request, status int, err error, r interface{}) {
+	logError(req, err, r)
+	switch status {
+	case 0:
+		// nothing to do
+	default:
+		s := web.StatusText(status)
+		if err == errUpdateTimeout {
+			s = "Timeout getting package files from the version control system."
+		} else if e, ok := err.(*doc.RemoteError); ok {
+			s = "Error getting package files from " + e.Host + "."
+		}
+		w := resp.Start(web.StatusInternalServerError, web.Header{web.HeaderContentType: {"text/plan; charset=uft-8"}})
+		io.WriteString(w, s)
+	}
+}
+
 var (
 	presMu        sync.Mutex
 	presentations = map[string]*doc.Presentation{}
@@ -342,12 +360,24 @@ func servePresentation(resp web.Response, req *web.Request) error {
 	}{
 		pres.Doc,
 		t,
-		false,
+		true,
 	}
 
 	return t.Execute(
 		resp.Start(web.StatusOK, web.Header{web.HeaderContentType: {"text/html; charset=utf8"}}),
 		&data)
+}
+
+func serveCompile(resp web.Response, req *web.Request) error {
+	r, err := http.PostForm("http://golang.org/compile", req.Form)
+	if err != nil {
+		return err
+	}
+	defer r.Body.Close()
+	_, err = io.Copy(
+		resp.Start(web.StatusOK, web.Header{web.HeaderContentType: r.Header[web.HeaderContentType]}),
+		r.Body)
+	return err
 }
 
 func defaultBase(path string) string {
@@ -449,6 +479,8 @@ func main() {
 		log.Fatal(err)
 	}
 
+	present.PlayEnabled = true
+
 	var err error
 	db, err = database.New()
 	if err != nil {
@@ -472,11 +504,12 @@ func main() {
 	r := web.NewRouter()
 	r.Add("/favicon.ico").Get(web.FileHandler(filepath.Join(*baseDir, "static", "favicon.ico"), nil))
 	r.Add("/static/<path:.*>").Get(web.DirectoryHandler(filepath.Join(*presentBaseDir, "static"), sfo))
-	r.Add("/play.js").Get(web.CatFilesHandler(sfo, filepath.Join(*presentBaseDir, "js"), "jquery.js", "playground.js"))
+	r.Add("/play.js").Get(web.CatFilesHandler(sfo, filepath.Join(*presentBaseDir, "js"), "jquery.js", "playground.js", "play.js"))
+	r.Add("/compile").PostFunc(serveCompile)
 	r.Add("/<path:.+>").GetFunc(servePresentation)
 
 	h := web.NewHostRouter()
-	h.Add("talks.<:.*>", r)
+	h.Add("talks.<:.*>", web.ErrorHandler(handleTalksError, web.FormAndCookieHandler(6000, false, r)))
 
 	r = web.NewRouter()
 	r.Add("/").GetFunc(serveHome)

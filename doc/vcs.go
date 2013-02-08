@@ -84,7 +84,7 @@ var vcsCmds = map[string]*vcsCmd{
 var lsremoteRe = regexp.MustCompile(`[0-9a-f]{4}([0-9a-f]{40}) refs/(?:tags|heads)/(.+)\n`)
 
 func downloadGit(client *http.Client, scheme, repo, savedEtag string) (string, string, error) {
-	p, err := httpGetBytes(client, scheme+"://"+repo+".git/info/refs?service=git-upload-pack")
+	p, err := httpGetBytes(client, scheme+"://"+repo+".git/info/refs?service=git-upload-pack", nil)
 	if err != nil {
 		return "", "", errNoMatch
 	}
