@@ -158,7 +158,7 @@ func servePackage(resp web.Response, req *web.Request) error {
 	switch req.Form.Get("view") {
 	case "imports":
 		if pdoc.Name == "" {
-			return &web.Error{Status: web.StatusNotFound}
+			break
 		}
 		pkgs, err = db.Packages(pdoc.Imports)
 		if err != nil {
@@ -170,7 +170,7 @@ func servePackage(resp web.Response, req *web.Request) error {
 		})
 	case "importers":
 		if pdoc.Name == "" {
-			return &web.Error{Status: web.StatusNotFound}
+			break
 		}
 		pkgs, err = db.Importers(path)
 		if err != nil {
@@ -180,6 +180,20 @@ func servePackage(resp web.Response, req *web.Request) error {
 			"pkgs": pkgs,
 			"pdoc": pdoc,
 		})
+	case "import-graph":
+		if pdoc.Name == "" {
+			break
+		}
+		pkgs, edges, err := db.ImportGraph(pdoc)
+		if err != nil {
+			return err
+		}
+		b, err := renderGraph(pdoc, pkgs, edges)
+		if err != nil {
+			return err
+		}
+		_, err = resp.Start(web.StatusOK, web.Header{web.HeaderContentType: {"image/svg+xml"}}).Write(b)
+		return err
 	case "":
 		importerCount, err := db.ImporterCount(path)
 		if err != nil {

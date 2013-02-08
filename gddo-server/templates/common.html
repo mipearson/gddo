@@ -90,7 +90,7 @@
 {{end}}
 {{with $.pdoc}}
  <form name="refresh" method="POST" action="/-/refresh" class="form-inline">
-   {{if or .Imports $.importerCount}}Package {{.Name|html}} {{if .Imports}}imports <a href="?view=imports">{{.Imports|len}} packages</a>{{end}}{{if and .Imports $.importerCount}} and {{end}}{{if $.importerCount}}is imported by <a href="?view=importers">{{$.importerCount}} packages</a>{{end}}.{{end}}
+   {{if or .Imports $.importerCount}}Package {{.Name|html}} {{if .Imports}}imports <a href="?view=imports">{{.Imports|len}} packages</a> (<a href="?view=import-graph">graph</a>){{end}}{{if and .Imports $.importerCount}} and {{end}}{{if $.importerCount}}is imported by <a href="?view=importers">{{$.importerCount}} packages</a>{{end}}.{{end}}
   {{if .Updated.IsZero}}{{else}}GoDoc generated this page from the <a href="{{.ProjectURL|html}}">{{.ProjectName|html}} source code</a> {{.Updated|relativeTime}}.
     <a href="javascript:document.refresh.submit();" title="Refresh this page from the source">⟲</a>
     <input type="hidden" name="path" value="{{.ImportPath|html}}">
