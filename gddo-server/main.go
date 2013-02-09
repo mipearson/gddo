@@ -184,7 +184,8 @@ func servePackage(resp web.Response, req *web.Request) error {
 		if pdoc.Name == "" {
 			break
 		}
-		pkgs, edges, err := db.ImportGraph(pdoc)
+		hide := req.Form.Get("hide") == "1"
+		pkgs, edges, err := db.ImportGraph(pdoc, hide)
 		if err != nil {
 			return err
 		}
@@ -192,8 +193,11 @@ func servePackage(resp web.Response, req *web.Request) error {
 		if err != nil {
 			return err
 		}
-		_, err = resp.Start(web.StatusOK, web.Header{web.HeaderContentType: {"image/svg+xml"}}).Write(b)
-		return err
+		return executeTemplate(resp, "graph.html", web.StatusOK, map[string]interface{}{
+			"svg":  template.HTML(b),
+			"pdoc": pdoc,
+			"hide": hide,
+		})
 	case "":
 		importerCount, err := db.ImporterCount(path)
 		if err != nil {
@@ -487,17 +491,18 @@ func main() {
 	}
 
 	if err := parseHTMLTemplates([][]string{
-		{"about.html", "common.html"},
-		{"bot.html", "common.html"},
-		{"cmd.html", "common.html"},
-		{"home.html", "common.html"},
-		{"importers.html", "common.html"},
-		{"imports.html", "common.html"},
-		{"index.html", "common.html"},
-		{"notfound.html", "common.html"},
-		{"pkg.html", "common.html"},
-		{"results.html", "common.html"},
-		{"std.html", "common.html"},
+		{"about.html", "common.html", "skeleton.html"},
+		{"bot.html", "common.html", "skeleton.html"},
+		{"cmd.html", "common.html", "skeleton.html"},
+		{"home.html", "common.html", "skeleton.html"},
+		{"importers.html", "common.html", "skeleton.html"},
+		{"imports.html", "common.html", "skeleton.html"},
+		{"index.html", "common.html", "skeleton.html"},
+		{"notfound.html", "common.html", "skeleton.html"},
+		{"pkg.html", "common.html", "skeleton.html"},
+		{"results.html", "common.html", "skeleton.html"},
+		{"std.html", "common.html", "skeleton.html"},
+		{"graph.html", "common.html"},
 	}); err != nil {
 		log.Fatal(err)
 	}

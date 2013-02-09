@@ -1,42 +1,18 @@
-{{define "graph.html"}}{{with .pdoc}}<!DOCTYPE html>
-<html lang="en">
-<head>
-  {{template "CommonHead"}}
-  <title>{{.Name|html}} importers - GoDoc</title>
-  <meta name="robots" content="noindex">
-  {{template "jQuery"}}
-  <script src="{{staticFile "springy.js"}}"></script>
-  <script src="{{staticFile "springyui.js"}}"></script>
-  <script>
-jQuery(function(){
-    var nodes = {{$.nodes|json}};
-    var edges = {{$.edges|json}};
-    var graph = new Graph();
-    for (var i = 0; i < nodes.length; i++) {
-      nodes[i] = graph.newNode({label:nodes[i].Path});
-    }
-    for (var i = 0; i < edges.length; i++) {
-      edge = edges[i]
-      graph.newEdge(nodes[edge[0]], nodes[edge[1]])
-    }
-    var springy = jQuery('#imports').springy({
-        graph: graph,
-        nodeSelected: function(node){
-          console.log('Node selected: ' + JSON.stringify(node.data));
-      }
-    });
-});
-</script>
-</head>
-
-<body>
-<div class="container spacey">
-{{template "SiteNav" ""}}
-{{template "ProjectNav" .}}
-<canvas id="imports" width="640" height="480" />
-</div>
-
-{{template "Tracker"}}
-</body>
-</html>
-{{end}}{{end}}
+{{define "ROOT"}}<!DOCTYPE html><html lang="en">
+    <head>
+      <title>{{.pdoc|pageName}} graph - GoDoc</title>
+      <meta name="robots" content="NOINDEX, NOFOLLOW">
+      <link href="{{staticFile "css/bootstrap.css"}}" rel="stylesheet">
+    </head>
+    <body>
+      <div class="well-small">
+        Package <a href="/{{.pdoc.ImportPath}}">{{.pdoc.Name}}</a>
+        {{if .pdoc.ProjectRoot}}<span class="muted">|</span> 
+            {{if .hide}}<a href="?view=import-graph">Show</a>{{else}}<a href="?view=import-graph&hide=1">Hide</a>{{end}} 
+            standard package dependencies.
+        {{end}}
+      </div>
+      {{.svg}}
+  </body>
+  {{template "Analytics"}}
+</html>{{end}}

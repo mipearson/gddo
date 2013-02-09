@@ -1,32 +1,5 @@
-{{define "ROOT"}}<!DOCTYPE html>
-<meta charset="utf-8">
-<link href="{{staticFile "css/bootstrap.css"}}" rel="stylesheet">
-<link rel="shortcut icon" href="{{staticFile "favicon.ico"}}">
-{{template "Head" $}}
-<body>
-<div class="container">
-  <div class="navbar navbar-inverse">
-    <div class="navbar-inner">
-      <a class="brand" href="/">GoDoc</a>
-      <ul class="nav">
-        <li{{if equal "home.html" templateName}} class="active"{{end}}><a href="/">Home</a></li>
-        <li{{if equal "index.html" templateName}} class="active"{{end}}><a href="/-/index">Index</a></li>
-        <li{{if equal "about.html" templateName}} class="active"{{end}}><a href="/-/about">About</a></li>
-      </ul>
-      <form class="navbar-search pull-right" action="/"><input type="text" class="search-query" name="q" placeholder="Search"></form>
-    </div>
-  </div>
-  {{template "Body" $}}
-  <div class="container">
-    <div class="flat-well well-small"><a href="http://twitter.com/GoDocDotOrg">@GoDocDotOrg</a> 
-      <span class="muted">|</span> <a href="mailto:info@godoc.org">Feedback</a> 
-      <span class="muted">|</span> <a href="https://github.com/garyburd/gopkgdoc/issues">Website Issues</a>
-      <span class="pull-right"><a href="#">Back to top</a>
-    </div>
-  </div>
-</body>
-{{template "Scripts" $}}
-{{with gaAccount}}<script type="text/javascript">
+
+{{define "Analytics"}}{{with gaAccount}}<script type="text/javascript">
   var _gaq = _gaq || [];
   _gaq.push(['_setAccount', '{{.}}']);
   _gaq.push(['_trackPageview']);
@@ -35,21 +8,19 @@
     ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
     var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
   })();
-</script>{{end}}
-</html>
-{{end}}
+</script>{{end}}{{end}}
 
 {{define "SearchBox"}}
   <form>
     <div class="input-append">
-      <input class="span6" name="q" value="{{.|html}}" placeholder="Import path or keywords" type="text">
+      <input class="span6" name="q" value="{{.}}" placeholder="Import path or keywords" type="text">
       <button class="btn" type="submit">Go!</button>
     </div>
   </form>
 {{end}}
 
 {{define "ProjectNav"}}<div class="flat-well well-small">
-  {{if .pdoc.ProjectRoot}}<a href="{{.pdoc.ProjectURL}}"><strong>{{.pdoc.ProjectName|html}}:</strong></a>{{else}}<a href="/-/go">Go:</a>{{end}}
+  {{if .pdoc.ProjectRoot}}<a href="{{.pdoc.ProjectURL}}"><strong>{{.pdoc.ProjectName}}:</strong></a>{{else}}<a href="/-/go">Go:</a>{{end}}
   {{breadcrumbs .pdoc (templateName)}}
   {{if and .pdoc.Name (equal templateName "pkg.html")}}
   <span class="pull-right">
@@ -64,7 +35,7 @@
     <p>The <a href="http://golang.org/cmd/go/#Download_and_install_packages_and_dependencies">go get</a>
     command cannot install this package because of the following issues:
     <ul>
-      {{range .}}<li>{{.|html}}{{end}}
+      {{range .}}<li>{{.}}{{end}}
   </ul>
 </div>{{end}}{{end}}
 
@@ -77,7 +48,7 @@
 
 {{define "PkgCmdHeader"}}{{with .pdoc}}
   <title>{{.|pageName}} - GoDoc</title>
-  {{if .Synopsis}}<meta name="description" content="{{.ProjectName|html}}: {{.Synopsis|html}}">{{end}}
+  {{if .Synopsis}}<meta name="description" content="{{.ProjectName}}: {{.Synopsis}}">{{end}}
   {{if .Errors}}<meta name="robots" content="noindex">{{end}}
 {{end}}{{end}}
 
@@ -85,15 +56,15 @@
 {{if $.pkgs}}{{if $.pdoc.Name}}<h3 id="_subdirs">Directories</h3>{{else}}<h3>Directory</h3>{{end}}
     <table class="table table-condensed">
     <thead><tr><th>Path</th><th>Synopsis</th></tr></thead>
-    <tbody>{{range $.pkgs}}<tr><td><a href="/{{.Path}}">{{relativePath .Path $.pdoc.ImportPath}}</a><td>{{.Synopsis|html}}</td></tr>{{end}}</tbody>
+    <tbody>{{range $.pkgs}}<tr><td><a href="/{{.Path}}">{{relativePath .Path $.pdoc.ImportPath}}</a><td>{{.Synopsis}}</td></tr>{{end}}</tbody>
     </table>
 {{end}}
 {{with $.pdoc}}
  <form name="refresh" method="POST" action="/-/refresh" class="form-inline">
-   {{if or .Imports $.importerCount}}Package {{.Name|html}} {{if .Imports}}imports <a href="?view=imports">{{.Imports|len}} packages</a> (<a href="?view=import-graph">graph</a>){{end}}{{if and .Imports $.importerCount}} and {{end}}{{if $.importerCount}}is imported by <a href="?view=importers">{{$.importerCount}} packages</a>{{end}}.{{end}}
-  {{if .Updated.IsZero}}{{else}}GoDoc generated this page from the <a href="{{.ProjectURL|html}}">{{.ProjectName|html}} source code</a> {{.Updated|relativeTime}}.
+   {{if or .Imports $.importerCount}}Package {{.Name}} {{if .Imports}}imports <a href="?view=imports">{{.Imports|len}} packages</a> (<a href="?view=import-graph">graph</a>){{end}}{{if and .Imports $.importerCount}} and {{end}}{{if $.importerCount}}is imported by <a href="?view=importers">{{$.importerCount}} packages</a>{{end}}.{{end}}
+  {{if .Updated.IsZero}}{{else}}GoDoc generated this page from the <a href="{{.ProjectURL}}">{{.ProjectName}} source code</a> {{.Updated|relativeTime}}.
     <a href="javascript:document.refresh.submit();" title="Refresh this page from the source">⟲</a>
-    <input type="hidden" name="path" value="{{.ImportPath|html}}">
+    <input type="hidden" name="path" value="{{.ImportPath}}">
   {{end}}
   </form>
 {{end}}{{end}}

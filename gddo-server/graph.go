@@ -16,8 +16,10 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os/exec"
+	"strings"
 
 	"github.com/garyburd/gopkgdoc/database"
 	"github.com/garyburd/gopkgdoc/doc"
@@ -26,9 +28,11 @@ import (
 func renderGraph(pdoc *doc.Package, pkgs []database.Package, edges [][2]int) ([]byte, error) {
 	var in, out bytes.Buffer
 
-	fmt.Fprintf(&in, "digraph %s {\n", pdoc.Name)
+	fmt.Fprintf(&in, "digraph %s { \n", pdoc.Name)
 	for i, pkg := range pkgs {
-		fmt.Fprintf(&in, " n%d [label=\"%s\", URL=\"/%s\"];\n", i, pkg.Path, pkg.Path)
+		fmt.Fprintf(&in, " n%d [label=\"%s\", URL=\"/%s\", tooltip=\"%s\"];\n",
+			i, pkg.Path, pkg.Path,
+			strings.Replace(pkg.Synopsis, `"`, `\"`, -1))
 	}
 	for _, edge := range edges {
 		fmt.Fprintf(&in, " n%d -> n%d;\n", edge[0], edge[1])
@@ -41,5 +45,12 @@ func renderGraph(pdoc *doc.Package, pkgs []database.Package, edges [][2]int) ([]
 	if err := cmd.Run(); err != nil {
 		return nil, err
 	}
-	return out.Bytes(), nil
+
+	p := out.Bytes()
+	if i := bytes.Index(p, []byte("<svg")); i < 0 {
+		return nil, errors.New("<svg not found")
+	} else {
+		p = p[i:]
+	}
+	return p, nil
 }

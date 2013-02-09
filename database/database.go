@@ -651,7 +651,7 @@ var importGraphScript = redis.NewScript(0, `
     return redis.call('HMGET', 'pkg:' .. id, 'synopsis', 'terms')
 `)
 
-func (db *Database) ImportGraph(pdoc *doc.Package) ([]Package, [][2]int, error) {
+func (db *Database) ImportGraph(pdoc *doc.Package, hideStdDeps bool) ([]Package, [][2]int, error) {
 
 	// This breadth-first traversal of the package's dependencies uses the
 	// Redis pipeline as queue. Links to packages with invalid import paths are
@@ -688,6 +688,9 @@ func (db *Database) ImportGraph(pdoc *doc.Package) ([]Package, [][2]int, error) 
 			return nil, nil, err
 		}
 		nodes[i].Synopsis = synopsis
+		if hideStdDeps && isStandardPackage(nodes[i].Path) {
+			continue
+		}
 		for _, term := range strings.Fields(terms) {
 			if strings.HasPrefix(term, "import:") {
 				path := term[len("import:"):]

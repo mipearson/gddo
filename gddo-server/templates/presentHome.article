@@ -23,6 +23,8 @@ The syntax for URLs is:
 
 The supported file extensions (.ext) are .slide and .article.
 
+This page is [[http://talks.godoc.org/github.com/garyburd/gopkgdoc/gddo-server/templates/presentHome.article][an article]].
+
 * Feedback
 
 Send your ideas, feature requests and questions to info@godoc.org. Report bugs using the 

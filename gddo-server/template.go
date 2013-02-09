@@ -271,7 +271,7 @@ func breadcrumbsFn(pdoc *doc.Package, templateName string) htemp.HTML {
 		if i != 0 {
 			buf.WriteString(`<span class="muted">/</span>`)
 		}
-		link := j < len(pdoc.ImportPath) || templateName == "imports.html" || templateName == "importers.html"
+		link := j < len(pdoc.ImportPath) || templateName == "imports.html" || templateName == "importers.html" || templateName == "graph.html"
 		if link {
 			buf.WriteString(`<a href="/`)
 			buf.WriteString(escapePath(pdoc.ImportPath[:j]))
