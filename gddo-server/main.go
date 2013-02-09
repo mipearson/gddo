@@ -323,14 +323,17 @@ func handleError(resp web.Response, req *web.Request, status int, err error, r i
 	}
 }
 
-func handleTalksError(resp web.Response, req *web.Request, status int, err error, r interface{}) {
+func handlePresentError(resp web.Response, req *web.Request, status int, err error, r interface{}) {
 	logError(req, err, r)
 	switch status {
 	case 0:
 		// nothing to do
 	default:
 		s := web.StatusText(status)
-		if err == errUpdateTimeout {
+		if doc.IsNotFound(err) {
+			s = web.StatusText(web.StatusNotFound)
+			status = web.StatusNotFound
+		} else if err == errUpdateTimeout {
 			s = "Timeout getting package files from the version control system."
 		} else if e, ok := err.(*doc.RemoteError); ok {
 			s = "Error getting package files from " + e.Host + "."
@@ -338,6 +341,37 @@ func handleTalksError(resp web.Response, req *web.Request, status int, err error
 		w := resp.Start(web.StatusInternalServerError, web.Header{web.HeaderContentType: {"text/plan; charset=uft-8"}})
 		io.WriteString(w, s)
 	}
+}
+
+func renderPresentation(resp web.Response, fname string, doc *present.Doc) error {
+	t := presentTemplates[path.Ext(fname)]
+	data := struct {
+		*present.Doc
+		Template    *template.Template
+		PlayEnabled bool
+	}{
+		doc,
+		t,
+		true,
+	}
+
+	return t.Execute(
+		resp.Start(web.StatusOK, web.Header{web.HeaderContentType: {"text/html; charset=utf8"}}),
+		&data)
+}
+
+func servePresentHome(resp web.Response, req *web.Request) error {
+	fname := filepath.Join(*baseDir, "templates", "presentHome.article")
+	f, err := os.Open(fname)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	doc, err := present.Parse(present.DefaultContext, f, fname, 0)
+	if err != nil {
+		return err
+	}
+	return renderPresentation(resp, fname, doc)
 }
 
 var (
@@ -349,12 +383,18 @@ func servePresentation(resp web.Response, req *web.Request) error {
 	if p := path.Clean(req.URL.Path); p != req.URL.Path {
 		return web.Redirect(resp, req, p, 301, nil)
 	}
-	p := req.RouteVars["path"]
+
 	presMu.Lock()
+	for p, pres := range presentations {
+		if time.Since(pres.Updated) > 30*time.Minute {
+			delete(presentations, p)
+		}
+	}
+	p := req.RouteVars["path"]
 	pres := presentations[p]
 	presMu.Unlock()
 
-	if pres == nil || time.Since(pres.Updated) > 30*time.Minute {
+	if pres == nil {
 		var err error
 		log.Println("Fetch presentation ", p)
 		pres, err = doc.GetPresentation(httpClient, p)
@@ -365,21 +405,7 @@ func servePresentation(resp web.Response, req *web.Request) error {
 		presentations[p] = pres
 		presMu.Unlock()
 	}
-
-	t := presentTemplates[path.Ext(p)]
-	data := struct {
-		*present.Doc
-		Template    *template.Template
-		PlayEnabled bool
-	}{
-		pres.Doc,
-		t,
-		true,
-	}
-
-	return t.Execute(
-		resp.Start(web.StatusOK, web.Header{web.HeaderContentType: {"text/html; charset=utf8"}}),
-		&data)
+	return renderPresentation(resp, p, pres.Doc)
 }
 
 func serveCompile(resp web.Response, req *web.Request) error {
@@ -516,14 +542,18 @@ func main() {
 	}
 
 	r := web.NewRouter()
-	r.Add("/favicon.ico").Get(web.FileHandler(filepath.Join(*baseDir, "static", "favicon.ico"), nil))
-	r.Add("/static/<path:.*>").Get(web.DirectoryHandler(filepath.Join(*presentBaseDir, "static"), sfo))
-	r.Add("/play.js").Get(web.CatFilesHandler(sfo, filepath.Join(*presentBaseDir, "js"), "jquery.js", "playground.js", "play.js"))
+	r.Add("/").GetFunc(servePresentHome)
 	r.Add("/compile").PostFunc(serveCompile)
+	r.Add("/favicon.ico").Get(web.FileHandler(filepath.Join(*baseDir, "static", "favicon.ico"), nil))
+	r.Add("/google3d2f3cd4cc2bb44b.html").Get(web.FileHandler(filepath.Join(*baseDir, "static", "google3d2f3cd4cc2bb44b.html"), nil))
+	r.Add("/humans.txt").Get(web.FileHandler(filepath.Join(*baseDir, "static", "humans.txt"), nil))
+	r.Add("/play.js").Get(web.CatFilesHandler(sfo, filepath.Join(*presentBaseDir, "js"), "jquery.js", "playground.js", "play.js"))
+	r.Add("/robots.txt").Get(web.FileHandler(filepath.Join(*baseDir, "static", "presentRobots.txt"), nil))
+	r.Add("/static/<path:.*>").Get(web.DirectoryHandler(filepath.Join(*presentBaseDir, "static"), sfo))
 	r.Add("/<path:.+>").GetFunc(servePresentation)
 
 	h := web.NewHostRouter()
-	h.Add("talks.<:.*>", web.ErrorHandler(handleTalksError, web.FormAndCookieHandler(6000, false, r)))
+	h.Add("talks.<:.*>", web.ErrorHandler(handlePresentError, web.FormAndCookieHandler(6000, false, r)))
 
 	r = web.NewRouter()
 	r.Add("/").GetFunc(serveHome)
@@ -533,12 +563,12 @@ func main() {
 	r.Add("/-/index").GetFunc(serveIndex)
 	r.Add("/-/refresh").PostFunc(serveRefresh)
 	r.Add("/-/static/<path:.*>").Get(web.DirectoryHandler(filepath.Join(*baseDir, "static"), sfo))
-	r.Add("/robots.txt").Get(web.FileHandler(filepath.Join(*baseDir, "static", "robots.txt"), nil))
-	r.Add("/humans.txt").Get(web.FileHandler(filepath.Join(*baseDir, "static", "humans.txt"), nil))
+	r.Add("/a/index").Get(web.RedirectHandler("/-/index", 301))
+	r.Add("/about").Get(web.RedirectHandler("/-/about", 301))
 	r.Add("/favicon.ico").Get(web.FileHandler(filepath.Join(*baseDir, "static", "favicon.ico"), nil))
 	r.Add("/google3d2f3cd4cc2bb44b.html").Get(web.FileHandler(filepath.Join(*baseDir, "static", "google3d2f3cd4cc2bb44b.html"), nil))
-	r.Add("/about").Get(web.RedirectHandler("/-/about", 301))
-	r.Add("/a/index").Get(web.RedirectHandler("/-/index", 301))
+	r.Add("/humans.txt").Get(web.FileHandler(filepath.Join(*baseDir, "static", "humans.txt"), nil))
+	r.Add("/robots.txt").Get(web.FileHandler(filepath.Join(*baseDir, "static", "robots.txt"), nil))
 	r.Add("/C").Get(web.RedirectHandler("http://golang.org/doc/articles/c_go_cgo.html", 301))
 	r.Add("/<path:.+>").GetFunc(servePackage)
 

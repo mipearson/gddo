@@ -1,6 +1,7 @@
 User-agent: *
 Disallow: /*?view=importers
 Disallow: /*?view=imports
+Disallow: /*?view=import-graph
 
 user-agent: AhrefsBot
 disallow: /
