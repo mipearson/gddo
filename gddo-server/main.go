@@ -371,7 +371,7 @@ func servePresentHome(resp web.Response, req *web.Request) error {
 		return err
 	}
 	defer f.Close()
-	doc, err := present.Parse(present.DefaultContext, f, fname, 0)
+	doc, err := present.Parse(f, fname, 0)
 	if err != nil {
 		return err
 	}
@@ -409,7 +409,19 @@ func servePresentation(resp web.Response, req *web.Request) error {
 		presentations[p] = pres
 		presMu.Unlock()
 	}
-	return renderPresentation(resp, p, pres.Doc)
+	ctx := &present.Context{
+		ReadFile: func(name string) ([]byte, error) {
+			if p, ok := pres.Files[name]; ok {
+				return p, nil
+			}
+			return nil, errors.New("pres file not found")
+		},
+	}
+	doc, err := ctx.Parse(bytes.NewReader(pres.Files[pres.Filename]), pres.Filename, 0)
+	if err != nil {
+		return err
+	}
+	return renderPresentation(resp, p, doc)
 }
 
 func serveCompile(resp web.Response, req *web.Request) error {

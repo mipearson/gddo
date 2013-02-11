@@ -15,7 +15,6 @@
 package doc
 
 import (
-	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -143,11 +142,10 @@ func getGithubPresentation(client *http.Client, match map[string]string) (*Prese
 
 	match["cred"] = githubCred
 
-	p, err := httpGet(client, expand("https://api.github.com/repos/{owner}/{repo}/contents{dir}/{file}?{cred}", match), githubRawHeader)
+	p, err := httpGetBytes(client, expand("https://api.github.com/repos/{owner}/{repo}/contents{dir}/{file}?{cred}", match), githubRawHeader)
 	if err != nil {
 		return nil, err
 	}
-	defer p.Close()
 
 	apiBase, err := url.Parse(expand("https://api.github.com/repos/{owner}/{repo}/contents{dir}/?{cred}", match))
 	if err != nil {
@@ -158,22 +156,24 @@ func getGithubPresentation(client *http.Client, match map[string]string) (*Prese
 		return nil, err
 	}
 
-	gc := &httpGetCache{
-		base:   apiBase,
-		header: githubRawHeader,
-		client: client,
-	}
-
 	b := &presBuilder{
-		pres:    &Presentation{},
-		content: p,
-		openFile: func(fname string) (io.ReadCloser, error) {
-			return gc.get(fname)
+		data:     p,
+		filename: match["file"],
+		fetch: func(files []*source) error {
+			for _, f := range files {
+				u, err := apiBase.Parse(f.name)
+				if err != nil {
+					return err
+				}
+				u.RawQuery = apiBase.RawQuery
+				f.rawURL = u.String()
+			}
+			return fetchFiles(client, files, githubRawHeader)
 		},
 		resolveURL: func(fname string) string {
 			u, err := rawBase.Parse(fname)
 			if err != nil {
-				return "/-/notfound"
+				return "/notfound"
 			}
 			return u.String()
 		},

@@ -16,7 +16,6 @@ package doc
 
 import (
 	"errors"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -171,27 +170,28 @@ func getGooglePresentation(client *http.Client, match map[string]string) (*Prese
 		return nil, err
 	}
 
-	p, err := httpGet(client, expand("http://{subrepo}{dot}{repo}.googlecode.com/{vcs}{dir}/{file}", match), nil)
+	p, err := httpGetBytes(client, expand("http://{subrepo}{dot}{repo}.googlecode.com/{vcs}{dir}/{file}", match), nil)
 	if err != nil {
 		return nil, err
 	}
-	defer p.Close()
-
-	gc := &httpGetCache{
-		base:   rawBase,
-		client: client,
-	}
 
 	b := &presBuilder{
-		pres:    &Presentation{},
-		content: p,
-		openFile: func(fname string) (io.ReadCloser, error) {
-			return gc.get(fname)
+		data:     p,
+		filename: match["file"],
+		fetch: func(files []*source) error {
+			for _, f := range files {
+				u, err := rawBase.Parse(f.name)
+				if err != nil {
+					return err
+				}
+				f.rawURL = u.String()
+			}
+			return fetchFiles(client, files, nil)
 		},
 		resolveURL: func(fname string) string {
 			u, err := rawBase.Parse(fname)
 			if err != nil {
-				return "/-/notfound"
+				return "/notfound"
 			}
 			return u.String()
 		},

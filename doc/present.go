@@ -15,61 +15,63 @@
 package doc
 
 import (
-	"io"
+	"regexp"
 	"time"
-
-	"code.google.com/p/go.talks/pkg/present"
 )
 
 type Presentation struct {
-	Doc     *present.Doc
-	Updated time.Time
+	Filename string
+	Files    map[string][]byte
+	Updated  time.Time
 }
 
 type presBuilder struct {
-	pres       *Presentation
 	filename   string
-	content    io.Reader
-	openFile   func(fname string) (io.ReadCloser, error)
+	data       []byte
 	resolveURL func(fname string) string
+	fetch      func(srcs []*source) error
 }
 
-func (b *presBuilder) resolveElem(e present.Elem) present.Elem {
-	switch e := e.(type) {
-	case present.Section:
-		for i := range e.Elem {
-			e.Elem[i] = b.resolveElem(e.Elem[i])
-		}
-		return e
-	case present.Image:
-		e.URL = b.resolveURL(e.URL)
-		return e
-	case present.Iframe:
-		e.URL = b.resolveURL(e.URL)
-		return e
-	case present.HTML:
-		// TODO: sanitize HTML
-		e.HTML = "HTML not supported on godoc.org"
-	}
-	return e
-}
+var assetPat = regexp.MustCompile(`(?m)^\.(play|code|image|iframe)\s+(\S+)`)
 
 func (b *presBuilder) build() (*Presentation, error) {
-	ctxt := &present.Context{
-		OpenFile: b.openFile,
+	var data []byte
+	var files []*source
+	i := 0
+	for _, m := range assetPat.FindAllSubmatchIndex(b.data, -1) {
+		name := string(b.data[m[4]:m[5]])
+		switch string(b.data[m[2]:m[3]]) {
+		case "iframe", "image":
+			data = append(data, b.data[i:m[4]]...)
+			data = append(data, b.resolveURL(name)...)
+		case "play", "code":
+			data = append(data, b.data[i:m[5]]...)
+			found := false
+			for _, f := range files {
+				if f.name == name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				files = append(files, &source{name: name})
+			}
+		default:
+			panic("unreachable")
+		}
+		i = m[5]
 	}
-
-	var err error
-	b.pres.Doc, err = present.Parse(ctxt, b.content, b.filename, 0)
-	if err != nil {
+	data = append(data, b.data[i:]...)
+	if err := b.fetch(files); err != nil {
 		return nil, err
 	}
-
-	for i := range b.pres.Doc.Sections {
-		b.pres.Doc.Sections[i] = b.resolveElem(b.pres.Doc.Sections[i]).(present.Section)
+	pres := &Presentation{
+		Updated:  time.Now().UTC(),
+		Filename: b.filename,
+		Files:    map[string][]byte{b.filename: data},
 	}
-
-	b.pres.Updated = time.Now().UTC()
-
-	return b.pres, nil
+	for _, f := range files {
+		pres.Files[f.name] = f.data
+	}
+	return pres, nil
 }

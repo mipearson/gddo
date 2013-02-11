@@ -147,8 +147,10 @@ func printPresentation(path string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("Doc:  ", pres.Doc)
-	fmt.Println("Kind: ", pres.Kind)
-	fmt.Println("Name: ", pres.Name)
-	fmt.Println("URL:  ", pres.URL)
+	fmt.Printf("%s\n", pres.Files[pres.Filename])
+	for name, data := range pres.Files {
+		if name != pres.Filename {
+			fmt.Printf("---------- %s ----------\n%s\n", name, data)
+		}
+	}
 }

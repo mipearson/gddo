@@ -15,7 +15,6 @@
 package doc
 
 import (
-	"bytes"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
@@ -23,7 +22,6 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -226,32 +224,4 @@ func httpGetBytesCompare(client *http.Client, url string, savedEtag string) ([]b
 		err = ErrNotModified
 	}
 	return p, etag, err
-}
-
-type httpGetCache struct {
-	data   map[string][]byte
-	base   *url.URL
-	header http.Header
-	client *http.Client
-}
-
-func (gc *httpGetCache) get(fname string) (io.ReadCloser, error) {
-	if gc.data == nil {
-		gc.data = make(map[string][]byte)
-	}
-	u, err := gc.base.Parse(fname)
-	if err != nil {
-		return nil, err
-	}
-	u.RawQuery = gc.base.RawQuery
-	s := u.String()
-	p, found := gc.data[s]
-	if !found {
-		p, err = httpGetBytes(gc.client, s, gc.header)
-		if err != nil {
-			return nil, err
-		}
-		gc.data[s] = p
-	}
-	return ioutil.NopCloser(bytes.NewReader(p)), nil
 }
