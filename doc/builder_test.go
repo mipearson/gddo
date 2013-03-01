@@ -15,6 +15,10 @@
 package doc
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"reflect"
 	"testing"
 )
 
@@ -69,5 +73,51 @@ func TestReferences(t *testing.T) {
 	}
 	for r := range references {
 		t.Errorf("extra %s", r)
+	}
+}
+
+const fileImportSrc = `
+package foobar
+import (
+    a "example.com/z"
+    "exampel.com/a"
+    "example.com/a.go"
+    "example.com/go.a"
+    "example.com/b"
+    "example.com/b-go"
+    "example.com/go-b"
+    "example.com/goc"
+    "example.com/d.go"
+)
+`
+
+var expectedFileImports = map[string]map[string]string{
+	"doc.go": map[string]string{
+		"a":   "example.com/z",
+		"b":   "example.com/b",
+		"c":   "example.com/goc",
+		"goc": "example.com/goc",
+		"d":   "example.com/d.go",
+
+		".a":   "example.com/go.a",
+		"a.go": "example.com/a.go",
+		"-b":   "example.com/go-b",
+		"b-go": "example.com/b-go",
+		"go.a": "example.com/go.a",
+		"go-b": "example.com/go-b",
+		"d.go": "example.com/d.go",
+	},
+}
+
+func TestFileImports(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "doc.go", []byte(fileImportSrc), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg := &ast.Package{Files: map[string]*ast.File{"doc.go": file}}
+	actualFileImports := fileImports(pkg)
+	if !reflect.DeepEqual(actualFileImports, expectedFileImports) {
+		t.Errorf("fileImports=%v, want %v", actualFileImports, expectedFileImports)
 	}
 }

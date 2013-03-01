@@ -14,6 +14,7 @@
 
 // Redis keys and types:
 //
+// maxPackageId string: next id to assign
 // id:<path> string: id for given import path
 // pkg:<id> hash
 //      terms: space separated search terms
@@ -25,9 +26,9 @@
 //      kind: p=package, c=command, d=directory with no go files
 // index:<term> set: package ids for given search term
 // index:import:<path> set: packages with import path
-// index:project:<root> set: packges in project with root
-// crawl zset: package id, unix type of last crawl
-// block set of paths to block
+// index:project:<root> set: packages in project with root
+// crawl zset: package id, Unix time for next crawl
+// block set: packages to block
 
 // Package database manages storage for GoPkgDoc.
 package database
@@ -36,6 +37,7 @@ import (
 	"bytes"
 	"encoding/gob"
 	"flag"
+	"fmt"
 	"log"
 	"net/url"
 	"os"
@@ -56,8 +58,8 @@ type Database struct {
 }
 
 type Package struct {
-	Path     string
-	Synopsis string
+	Path     string `json:"path"`
+	Synopsis string `json:"synopsis,omitempty"`
 }
 
 type byPath []Package
@@ -136,7 +138,7 @@ var putScript = redis.NewScript(0, `
     local terms = ARGV[5]
     local etag = ARGV[6]
     local kind = ARGV[7]
-    local crawl = ARGV[8]
+    local nextCrawl = ARGV[8]
 
     local id = redis.call('GET', 'id:' .. path)
     if not id then
@@ -161,16 +163,15 @@ var putScript = redis.NewScript(0, `
         end
     end
 
-    local c = redis.call('ZSCORE', 'crawl', id)
-    if not c or tonumber(c) < tonumber(crawl) then
-        redis.call('ZADD', 'crawl', crawl, id)
+    if nextCrawl ~= '0' then
+        redis.call('ZADD', 'crawl', nextCrawl, id)
     end
 
     return redis.call('HMSET', 'pkg:' .. id, 'path', path, 'synopsis', synopsis, 'rank', rank, 'gob', gob, 'terms', terms, 'etag', etag, 'kind', kind)
 `)
 
 // Put adds the package documentation to the database.
-func (db *Database) Put(pdoc *doc.Package) error {
+func (db *Database) Put(pdoc *doc.Package, nextCrawl time.Time) error {
 	c := db.Pool.Get()
 	defer c.Close()
 
@@ -211,40 +212,57 @@ func (db *Database) Put(pdoc *doc.Package) error {
 		kind = "c"
 	}
 
-	_, err = putScript.Do(c, pdoc.ImportPath, pdoc.Synopsis, rank, gobBytes, strings.Join(terms, " "), pdoc.Etag, kind, pdoc.Updated.Unix())
+	t := int64(0)
+	if !nextCrawl.IsZero() {
+		t = nextCrawl.Unix()
+	}
+	_, err = putScript.Do(c, pdoc.ImportPath, pdoc.Synopsis, rank, gobBytes, strings.Join(terms, " "), pdoc.Etag, kind, t)
 	return err
 }
 
-var touchScript = redis.NewScript(0, `
+var setNextCrawlEtagScript = redis.NewScript(0, `
     local root = ARGV[1]
-    local path = ARGV[2]
-    local etag = ARGV[3]
-    local crawl = ARGV[4]
-
-    local id = redis.call('GET', 'id:' .. path)
-    if id then
-        redis.call('ZADD', 'crawl', crawl, id)
-    end
+    local etag = ARGV[2]
+    local nextCrawl = ARGV[3]
 
     local pkgs = redis.call('SORT', 'index:project:' .. root, 'GET', '#',  'GET', 'pkg:*->etag')
 
     for i=1,#pkgs,2 do
-        if pkgs[i+1] == etag and pkgs[i] ~= id then
-            redis.call('ZADD', 'crawl', crawl, pkgs[i])
+        if pkgs[i+1] == etag then
+            redis.call('ZADD', 'crawl', nextCrawl, pkgs[i])
         end
     end
 `)
 
-func (db *Database) TouchLastCrawl(pdoc *doc.Package) error {
+// SetNextCrawlEtag sets the next crawl time for all packages in the project with the given etag.
+func (db *Database) SetNextCrawlEtag(projectRoot string, etag string, t time.Time) error {
 	c := db.Pool.Get()
 	defer c.Close()
-	_, err := touchScript.Do(c, normalizeProjectRoot(pdoc.ProjectRoot), pdoc.ImportPath, pdoc.Etag, time.Now().Unix())
+	_, err := setNextCrawlEtagScript.Do(c, normalizeProjectRoot(projectRoot), etag, t.Unix())
 	return err
 }
 
-// getDocScript gets the package documentation and last crawl time for the
-// specified path. If path is "-", then the oldest crawled document is
-// returned.
+var setNextCrawlScript = redis.NewScript(0, `
+    local root = ARGV[1]
+    local nextCrawl = ARGV[2]
+
+    local pkgs = redis.call('SORT', 'index:project:' .. root, 'GET', '#')
+
+    for i=1,#pkgs do
+        redis.call('ZADD', 'crawl', nextCrawl, pkgs[i])
+    end
+`)
+
+// SetNextCrawl sets the next crawl time for all packages in the project.
+func (db *Database) SetNextCrawl(projectRoot string, t time.Time) error {
+	c := db.Pool.Get()
+	defer c.Close()
+	_, err := setNextCrawlScript.Do(c, normalizeProjectRoot(projectRoot), t.Unix())
+	return err
+}
+
+// getDocScript gets the package documentation and update time for the
+// specified path. If path is "-", then the oldest document is returned.
 var getDocScript = redis.NewScript(0, `
     local path = ARGV[1]
 
@@ -267,12 +285,12 @@ var getDocScript = redis.NewScript(0, `
         return false
     end
 
-    local crawl = redis.call('ZSCORE', 'crawl', id)
-    if not crawl then 
-        crawl = 0
+    local nextCrawl = redis.call('ZSCORE', 'crawl', id)
+    if not nextCrawl then 
+        nextCrawl = 0
     end
     
-    return {gob, crawl}
+    return {gob, nextCrawl}
 `)
 
 func (db *Database) getDoc(c redis.Conn, path string) (*doc.Package, time.Time, error) {
@@ -300,12 +318,12 @@ func (db *Database) getDoc(c redis.Conn, path string) (*doc.Package, time.Time, 
 		return nil, time.Time{}, err
 	}
 
-	lastCrawl := pdoc.Updated
+	nextCrawl := pdoc.Updated
 	if t != 0 {
-		lastCrawl = time.Unix(t, 0).UTC()
+		nextCrawl = time.Unix(t, 0).UTC()
 	}
 
-	return &pdoc, lastCrawl, err
+	return &pdoc, nextCrawl, err
 }
 
 var getSubdirsScript = redis.NewScript(0, `
@@ -371,7 +389,7 @@ func (db *Database) Get(path string) (*doc.Package, []Package, time.Time, error)
 	c := db.Pool.Get()
 	defer c.Close()
 
-	pdoc, lastCrawl, err := db.getDoc(c, path)
+	pdoc, nextCrawl, err := db.getDoc(c, path)
 	if err != nil {
 		return nil, nil, time.Time{}, err
 	}
@@ -385,7 +403,7 @@ func (db *Database) Get(path string) (*doc.Package, []Package, time.Time, error)
 	if err != nil {
 		return nil, nil, time.Time{}, err
 	}
-	return pdoc, subdirs, lastCrawl, nil
+	return pdoc, subdirs, nextCrawl, nil
 }
 
 func (db *Database) GetDoc(path string) (*doc.Package, time.Time, error) {
@@ -424,7 +442,7 @@ func packages(reply interface{}, all bool) ([]Package, error) {
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Package, 0, len(values)/2)
+	result := make([]Package, 0, len(values)/3)
 	for len(values) > 0 {
 		var pkg Package
 		var kind string
@@ -463,6 +481,29 @@ func (db *Database) Index() ([]Package, error) {
 
 func (db *Database) Project(projectRoot string) ([]Package, error) {
 	return db.getPackages("index:project:"+normalizeProjectRoot(projectRoot), true)
+}
+
+func (db *Database) AllPackages() ([]Package, error) {
+	c := db.Pool.Get()
+	defer c.Close()
+	values, err := redis.Values(c.Do("SORT", "crawl", "DESC", "BY", "pkg:*->rank", "GET", "pkg:*->path", "GET", "pkg:*->kind"))
+	if err != nil {
+		return nil, err
+	}
+	result := make([]Package, 0, len(values)/2)
+	for len(values) > 0 {
+		var pkg Package
+		var kind string
+		values, err = redis.Scan(values, &pkg.Path, &kind)
+		if err != nil {
+			return nil, err
+		}
+		if kind == "d" {
+			continue
+		}
+		result = append(result, pkg)
+	}
+	return result, nil
 }
 
 var packagesScript = redis.NewScript(0, `
@@ -603,17 +644,18 @@ func (db *Database) Do(f func(*PackageInfo) error) error {
 		return err
 	}
 	for _, key := range keys {
-		values, err := redis.Values(c.Do("HMGET", key, "gob", "rank", "kind"))
+		values, err := redis.Values(c.Do("HMGET", key, "gob", "rank", "kind", "path"))
 		if err != nil {
 			return err
 		}
 
 		var (
-			pi PackageInfo
-			p  []byte
+			pi   PackageInfo
+			p    []byte
+			path string
 		)
 
-		if _, err := redis.Scan(values, &p, &pi.Rank, &pi.Kind); err != nil {
+		if _, err := redis.Scan(values, &p, &pi.Rank, &pi.Kind, &path); err != nil {
 			return err
 		}
 
@@ -623,18 +665,18 @@ func (db *Database) Do(f func(*PackageInfo) error) error {
 
 		p, err = snappy.Decode(nil, p)
 		if err != nil {
-			return err
+			return fmt.Errorf("snappy decoding %s: %v", path, err)
 		}
 
 		if err := gob.NewDecoder(bytes.NewReader(p)).Decode(&pi.PDoc); err != nil {
-			return err
+			return fmt.Errorf("gob decoding %s: %v", path, err)
 		}
 		pi.Pkgs, err = db.getSubdirs(c, pi.PDoc.ImportPath, pi.PDoc)
 		if err != nil {
-			return err
+			return fmt.Errorf("get subdirs %s: %v", path, err)
 		}
 		if err := f(&pi); err != nil {
-			return err
+			return fmt.Errorf("func %s: %v", path, err)
 		}
 	}
 	return nil
@@ -706,4 +748,27 @@ func (db *Database) ImportGraph(pdoc *doc.Package, hideStdDeps bool) ([]Package,
 		}
 	}
 	return nodes, edges, nil
+}
+
+func (db *Database) PutGob(key string, value interface{}) error {
+	var buf bytes.Buffer
+	if err := gob.NewEncoder(&buf).Encode(value); err != nil {
+		return err
+	}
+	c := db.Pool.Get()
+	defer c.Close()
+	_, err := c.Do("SET", "gob:"+key, buf.Bytes())
+	return err
+}
+
+func (db *Database) GetGob(key string, value interface{}) error {
+	c := db.Pool.Get()
+	defer c.Close()
+	p, err := redis.Bytes(c.Do("GET", "gob:"+key))
+	if err == redis.ErrNil {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	return gob.NewDecoder(bytes.NewReader(p)).Decode(value)
 }

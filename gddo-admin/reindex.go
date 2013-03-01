@@ -15,9 +15,11 @@
 package main
 
 import (
-	"github.com/garyburd/gopkgdoc/database"
 	"log"
 	"os"
+	"time"
+
+	"github.com/garyburd/gopkgdoc/database"
 )
 
 var reindexCommand = &command{
@@ -38,7 +40,7 @@ func reindex(c *command) {
 	var n int
 	err = db.Do(func(pi *database.PackageInfo) error {
 		n += 1
-		return db.Put(pi.PDoc)
+		return db.Put(pi.PDoc, time.Time{})
 	})
 	if err != nil {
 		log.Fatal(err)

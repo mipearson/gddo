@@ -18,6 +18,7 @@ package doc
 import (
 	"encoding/xml"
 	"errors"
+	"io"
 	"net/http"
 	"path"
 	"regexp"
@@ -65,7 +66,7 @@ var services = []*service{
 	{googlePattern, "code.google.com/", getGoogleDoc, getGooglePresentation},
 	{bitbucketPattern, "bitbucket.org/", getBitbucketDoc, nil},
 	{launchpadPattern, "launchpad.net/", getLaunchpadDoc, nil},
-	{generalPattern, "", getGeneralDoc, nil},
+	{vcsPattern, "", getVCSDoc, nil},
 }
 
 func attrValue(attrs []xml.Attr, name string) string {
@@ -77,11 +78,7 @@ func attrValue(attrs []xml.Attr, name string) string {
 	return ""
 }
 
-type meta struct {
-	projectRoot, projectName, projectURL, repo, vcs string
-}
-
-func fetchMeta(client *http.Client, importPath string) (*meta, error) {
+func fetchMeta(client *http.Client, importPath string) (map[string]string, error) {
 	uri := importPath
 	if !strings.Contains(uri, "/") {
 		// Add slash for root of domain.
@@ -102,10 +99,13 @@ func fetchMeta(client *http.Client, importPath string) (*meta, error) {
 		}
 	}
 	defer resp.Body.Close()
+	return parseMeta(scheme, importPath, resp.Body)
+}
 
-	var m *meta
+func parseMeta(scheme, importPath string, r io.Reader) (map[string]string, error) {
+	var match map[string]string
 
-	d := xml.NewDecoder(resp.Body)
+	d := xml.NewDecoder(r)
 	d.Strict = false
 metaScan:
 	for {
@@ -132,68 +132,76 @@ metaScan:
 				!(len(importPath) == len(f[0]) || importPath[len(f[0])] == '/') {
 				continue metaScan
 			}
-			if m != nil {
-				return nil, NotFoundError{"More than one <meta> found at " + resp.Request.URL.String()}
+			if match != nil {
+				return nil, NotFoundError{"More than one <meta> found at " + scheme + "://" + importPath}
 			}
-			m = &meta{
-				projectRoot: f[0],
-				vcs:         f[1],
-				repo:        f[2],
-				projectName: path.Base(f[0]),
-				projectURL:  scheme + "://" + f[0],
+
+			projectRoot, vcs, repo := f[0], f[1], f[2]
+
+			repo = strings.TrimSuffix(repo, "."+vcs)
+			i := strings.Index(repo, "://")
+			if i < 0 {
+				return nil, NotFoundError{"Bad repo URL in <meta>."}
+			}
+			proto := repo[:i]
+			repo = repo[i+len("://"):]
+
+			match = map[string]string{
+				// Used in getVCSDoc, same as vcsPattern matches.
+				"importPath": importPath,
+				"repo":       repo,
+				"vcs":        vcs,
+				"dir":        importPath[len(projectRoot):],
+
+				// Used in getVCSDoc
+				"scheme": proto,
+
+				// Used in getDynamic.
+				"projectRoot": projectRoot,
+				"projectName": path.Base(projectRoot),
+				"projectURL":  scheme + "://" + projectRoot,
 			}
 		}
 	}
-	if m == nil {
+	if match == nil {
 		return nil, NotFoundError{"<meta> not found."}
 	}
-	return m, nil
+	return match, nil
 }
 
 // getDynamic gets a document from a service that is not statically known.
 func getDynamic(client *http.Client, importPath string, etag string) (*Package, error) {
-	m, err := fetchMeta(client, importPath)
+	match, err := fetchMeta(client, importPath)
 	if err != nil {
 		return nil, err
 	}
 
-	if m.projectRoot != importPath {
-		mRoot, err := fetchMeta(client, m.projectRoot)
+	if match["projectRoot"] != importPath {
+		rootMatch, err := fetchMeta(client, match["projectRoot"])
 		if err != nil {
 			return nil, err
 		}
-		if mRoot.projectRoot != m.projectRoot {
+		if rootMatch["projectRoot"] != match["projectRoot"] {
 			return nil, NotFoundError{"Project root mismatch."}
 		}
 	}
 
-	i := strings.Index(m.repo, "://")
-	if i < 0 {
-		return nil, NotFoundError{"Bad repo URL in <meta>."}
-	}
-	scheme := m.repo[:i]
-	repo := m.repo[i+len("://"):]
-	dir := importPath[len(m.projectRoot):]
-
-	pdoc, err := getStatic(client, repo+dir, etag)
+	pdoc, err := getStatic(client, expand("{repo}{dir}", match), etag)
 	if err == errNoMatch {
-		pdoc, err = getVCS(client, m.vcs, scheme, repo, dir, etag)
+		pdoc, err = getVCSDoc(client, match, etag)
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	if pdoc != nil {
 		pdoc.ImportPath = importPath
-		pdoc.ProjectRoot = m.projectRoot
-		pdoc.ProjectName = m.projectName
-		pdoc.ProjectURL = m.projectURL
+		pdoc.ProjectRoot = match["projectRoot"]
+		pdoc.ProjectName = match["projectName"]
+		pdoc.ProjectURL = match["projectURL"]
 	}
 
 	return pdoc, err
-}
-
-var generalPattern = regexp.MustCompile(`^(?P<repo>(?:[a-z0-9.\-]+\.)+[a-z0-9.\-]+(?::[0-9]+)?/[A-Za-z0-9_.\-/]*?)\.(?P<vcs>bzr|git|hg|svn)(?P<dir>/[A-Za-z0-9_.\-/]*)?$`)
-
-func getGeneralDoc(client *http.Client, match map[string]string, etag string) (*Package, error) {
-	return getVCS(client, match["vcs"], "", match["repo"], match["dir"], etag)
 }
 
 // getStatic gets a document from a statically known service. getStatic
@@ -244,7 +252,7 @@ func Get(client *http.Client, importPath string, etag string) (pdoc *Package, er
 	}
 
 	if err == errNoMatch {
-		err = NotFoundError{"Import path not valid."}
+		err = NotFoundError{"Import path not valid:"}
 	}
 
 	if pdoc != nil {

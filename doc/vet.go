@@ -79,11 +79,13 @@ func (b *builder) vetPackage() {
 				errors[fmt.Sprintf("Unrecognized import path %q", importPath)] = is.Pos()
 			}
 		}
-		v := vetVisitor{importPaths: b.fileImportPaths(fname), errors: errors}
-		ast.Walk(&v, file)
+		if importPaths := b.fileImports[fname]; importPaths != nil {
+			v := vetVisitor{importPaths: importPaths, errors: errors}
+			ast.Walk(&v, file)
+		}
 	}
 	for message, pos := range errors {
-		b.pkg.Errors = append(b.pkg.Errors,
+		b.pdoc.Errors = append(b.pdoc.Errors,
 			fmt.Sprintf("%s (%s)", message, b.fset.Position(pos)))
 	}
 }

@@ -89,7 +89,7 @@ func getBitbucketDoc(client *http.Client, match map[string]string, savedEtag str
 
 	b := builder{
 		lineFmt: "#cl-%d",
-		pkg: &Package{
+		pdoc: &Package{
 			ImportPath:  match["importPath"],
 			ProjectRoot: expand("bitbucket.org/{owner}/{repo}", match),
 			ProjectName: match["repo"],

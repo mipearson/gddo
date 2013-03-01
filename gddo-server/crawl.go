@@ -34,34 +34,52 @@ func exists(path string) bool {
 }
 
 // crawlDoc fetches the package documentation from the VCS and updates the database.
-func crawlDoc(source string, path string, pdoc *doc.Package, hasSubdirs bool) (*doc.Package, error) {
+func crawlDoc(source string, path string, pdoc *doc.Package, hasSubdirs bool, nextCrawl time.Time) (*doc.Package, error) {
+	message := []interface{}{source}
+	defer func() {
+		message = append(message, path)
+		log.Println(message...)
+	}()
+
+	if !nextCrawl.IsZero() {
+		d := time.Since(nextCrawl) / time.Hour
+		if d > 0 {
+			message = append(message, "late:", int64(d))
+		}
+	}
+
 	etag := ""
 	if pdoc != nil {
 		etag = pdoc.Etag
+		message = append(message, "etag:", etag)
 	}
 
-	var d time.Duration
-	var err error
+	now := time.Now()
+	nextCrawl = now.Add(*maxAge)
+	if strings.HasPrefix(path, "github.com/") {
+		nextCrawl = now.Add(*maxAge * 7)
+	}
 
+	var err error
 	if i := strings.Index(path, "/src/pkg/"); i > 0 && doc.IsGoRepoPath(path[i+len("/src/pkg/"):]) {
 		// Go source tree mirror.
 		pdoc = nil
-		err = doc.NotFoundError{"Go source tree mirror."}
+		err = doc.NotFoundError{Message: "Go source tree mirror."}
 	} else if i := strings.Index(path, "/libgo/go/"); i > 0 && doc.IsGoRepoPath(path[i+len("/libgo/go/"):]) {
 		// Go Frontend source tree mirror.
 		pdoc = nil
-		err = doc.NotFoundError{"Go Frontend source tree mirror."}
+		err = doc.NotFoundError{Message: "Go Frontend source tree mirror."}
 	} else if m := nestedProjectPat.FindStringIndex(path); m != nil && exists(path[m[0]+1:]) {
 		pdoc = nil
-		err = doc.NotFoundError{"Copy of other project."}
+		err = doc.NotFoundError{Message: "Copy of other project."}
 	} else if blocked, e := db.IsBlocked(path); blocked && e == nil {
 		pdoc = nil
-		err = doc.NotFoundError{"Blocked."}
+		err = doc.NotFoundError{Message: "Blocked."}
 	} else {
-		t := time.Now()
 		var pdocNew *doc.Package
 		pdocNew, err = doc.Get(httpClient, path, etag)
-		d = time.Since(t) / time.Millisecond
+
+		message = append(message, "fetch:", int64(time.Since(now)/time.Millisecond))
 
 		// For timeout logic in client.go to work, we cannot leave connections idling. This is ugly.
 		httpTransport.CloseIdleConnections()
@@ -73,23 +91,22 @@ func crawlDoc(source string, path string, pdoc *doc.Package, hasSubdirs bool) (*
 
 	switch {
 	case err == nil:
-		log.Printf("%s put    %q %q -> %q %dms", source, path, etag, pdoc.Etag, d)
-		if err := db.Put(pdoc); err != nil {
+		message = append(message, "put:", pdoc.Etag)
+		if err := db.Put(pdoc, nextCrawl); err != nil {
 			log.Printf("ERROR db.Put(%q): %v", path, err)
 		}
 	case err == doc.ErrNotModified:
-		log.Printf("%s touch  %q %q %dms", source, path, etag, d)
-		if err := db.TouchLastCrawl(pdoc); err != nil {
-			log.Printf("ERROR db.TouchLastCrawl(%q): %v", path, err)
+		message = append(message, "touch")
+		if err := db.SetNextCrawlEtag(pdoc.ProjectRoot, pdoc.Etag, nextCrawl); err != nil {
+			log.Printf("ERROR db.SetNextCrawl(%q): %v", path, err)
 		}
 	case doc.IsNotFound(err):
-		pdoc = nil
-		log.Printf("%s delete %q %s %dms", source, path, err.Error(), d)
+		message = append(message, "notfound:", err)
 		if err := db.Delete(path); err != nil {
 			log.Printf("ERROR db.Delete(%q): %v", path, err)
 		}
 	default:
-		log.Printf("%s error  %q %q %dms %v", source, path, etag, d, err)
+		message = append(message, "ERROR:", err)
 		return nil, err
 	}
 
@@ -99,23 +116,18 @@ func crawlDoc(source string, path string, pdoc *doc.Package, hasSubdirs bool) (*
 func crawl(interval time.Duration) {
 	for {
 		time.Sleep(interval)
-		pdoc, pkgs, lastCrawl, err := db.Get("-")
+		pdoc, pkgs, nextCrawl, err := db.Get("-")
 		if err != nil {
 			log.Printf("db.Get(\"-\") returned error %v", err)
 			continue
 		}
-		if pdoc == nil {
-			time.Sleep(*maxAge)
+		if pdoc == nil || nextCrawl.After(time.Now()) {
 			continue
 		}
-		sleep := *maxAge - time.Now().Sub(lastCrawl)
-		if sleep > 0 {
-			time.Sleep(sleep)
-		}
-		_, err = crawlDoc("crawl", pdoc.ImportPath, pdoc, len(pkgs) > 0)
+		_, err = crawlDoc("crawl", pdoc.ImportPath, pdoc, len(pkgs) > 0, nextCrawl)
 		if err != nil {
 			// Touch package so that crawl advances to next package.
-			if err := db.TouchLastCrawl(pdoc); err != nil {
+			if err := db.SetNextCrawlEtag(pdoc.ProjectRoot, pdoc.Etag, time.Now().Add(*maxAge/3)); err != nil {
 				log.Printf("ERROR db.TouchLastCrawl(%q): %v", pdoc.ImportPath, err)
 			}
 		}

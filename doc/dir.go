@@ -41,7 +41,7 @@ func GetDir(dir string) (*Package, error) {
 		})
 	}
 	b := &builder{
-		pkg: &Package{
+		pdoc: &Package{
 			ImportPath:  "example.com/project/package",
 			ProjectRoot: "example.com/project",
 			ProjectName: "pacakge",

@@ -61,7 +61,7 @@ type crawlResult struct {
 // getDoc gets the package documentation from the database or from the version
 // control system as needed.
 func getDoc(path string, requestType int) (*doc.Package, []database.Package, error) {
-	pdoc, pkgs, lastCrawl, err := db.Get(path)
+	pdoc, pkgs, nextCrawl, err := db.Get(path)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -69,17 +69,17 @@ func getDoc(path string, requestType int) (*doc.Package, []database.Package, err
 	needsCrawl := false
 	switch requestType {
 	case queryRequest:
-		needsCrawl = lastCrawl.IsZero() && len(pkgs) == 0
+		needsCrawl = nextCrawl.IsZero() && len(pkgs) == 0
 	case humanRequest:
-		needsCrawl = time.Now().Add(-24 * time.Hour).After(lastCrawl)
+		needsCrawl = nextCrawl.Before(time.Now())
 	case robotRequest:
-		needsCrawl = lastCrawl.IsZero() && len(pkgs) > 0
+		needsCrawl = nextCrawl.IsZero() && len(pkgs) > 0
 	}
 
 	if needsCrawl {
 		c := make(chan crawlResult, 1)
 		go func() {
-			pdoc, err := crawlDoc("web  ", path, pdoc, len(pkgs) > 0)
+			pdoc, err := crawlDoc("web  ", path, pdoc, len(pkgs) > 0, nextCrawl)
 			c <- crawlResult{pdoc, err}
 		}()
 		var err error
@@ -117,14 +117,20 @@ func templateExt(req *web.Request) string {
 	return ".html"
 }
 
-var robotPat = regexp.MustCompile(`(:?\+https?://)|(?:\Wbot\W)`)
+var (
+	robotPat = regexp.MustCompile(`(:?\+https?://)|(?:\Wbot\W)`)
+)
 
 func isRobot(req *web.Request) bool {
 	return *robot || robotPat.MatchString(req.Header.Get(web.HeaderUserAgent))
 }
 
 func servePackage(resp web.Response, req *web.Request) error {
-	if p := path.Clean(req.URL.Path); p != req.URL.Path {
+	p := path.Clean(req.URL.Path)
+	if strings.HasPrefix(p, "/pkg/") {
+		p = p[len("/pkg"):]
+	}
+	if p != req.URL.Path {
 		return web.Redirect(resp, req, p, 301, nil)
 	}
 
@@ -198,6 +204,12 @@ func servePackage(resp web.Response, req *web.Request) error {
 			"pdoc": pdoc,
 			"hide": hide,
 		})
+	case "play":
+		u, err := playURL(pdoc, req.Form.Get("example"))
+		if err != nil {
+			return err
+		}
+		return web.Redirect(resp, req, u, 301, nil)
 	case "":
 		importerCount, err := db.ImporterCount(path)
 		if err != nil {
@@ -227,7 +239,7 @@ func serveRefresh(resp web.Response, req *web.Request) error {
 	}
 	c := make(chan error, 1)
 	go func() {
-		_, err := crawlDoc("rfrsh", path, nil, len(pkgs) > 0)
+		_, err := crawlDoc("rfrsh", path, nil, len(pkgs) > 0, time.Time{})
 		c <- err
 	}()
 	select {
@@ -305,45 +317,6 @@ func logError(req *web.Request, err error, r interface{}) {
 			buf.Write(debug.Stack())
 		}
 		log.Print(buf.String())
-	}
-}
-
-func handleError(resp web.Response, req *web.Request, status int, err error, r interface{}) {
-	logError(req, err, r)
-	switch status {
-	case 0:
-		// nothing to do
-	case web.StatusNotFound:
-		executeTemplate(resp, "notfound"+templateExt(req), status, nil)
-	default:
-		s := web.StatusText(status)
-		if err == errUpdateTimeout {
-			s = "Timeout getting package files from the version control system."
-		} else if e, ok := err.(*doc.RemoteError); ok {
-			s = "Error getting package files from " + e.Host + "."
-		}
-		w := resp.Start(web.StatusInternalServerError, web.Header{web.HeaderContentType: {"text/plan; charset=uft-8"}})
-		io.WriteString(w, s)
-	}
-}
-
-func handlePresentError(resp web.Response, req *web.Request, status int, err error, r interface{}) {
-	logError(req, err, r)
-	switch status {
-	case 0:
-		// nothing to do
-	default:
-		s := web.StatusText(status)
-		if doc.IsNotFound(err) {
-			s = web.StatusText(web.StatusNotFound)
-			status = web.StatusNotFound
-		} else if err == errUpdateTimeout {
-			s = "Timeout getting package files from the version control system."
-		} else if e, ok := err.(*doc.RemoteError); ok {
-			s = "Error getting package files from " + e.Host + "."
-		}
-		w := resp.Start(web.StatusInternalServerError, web.Header{web.HeaderContentType: {"text/plan; charset=uft-8"}})
-		io.WriteString(w, s)
 	}
 }
 
@@ -436,6 +409,90 @@ func serveCompile(resp web.Response, req *web.Request) error {
 	return err
 }
 
+func serveAPISearch(resp web.Response, req *web.Request) error {
+	q := strings.TrimSpace(req.Form.Get("q"))
+	pkgs, err := db.Query(q)
+	if err != nil {
+		return err
+	}
+
+	var data struct {
+		Results []database.Package `json:"results"`
+	}
+	data.Results = pkgs
+	w := resp.Start(web.StatusOK, web.Header{web.HeaderContentType: {"application/json; charset=uft-8"}})
+	return json.NewEncoder(w).Encode(&data)
+}
+
+func serveAPIPackages(resp web.Response, req *web.Request) error {
+	pkgs, err := db.AllPackages()
+	if err != nil {
+		return err
+	}
+	var data struct {
+		Results []database.Package `json:"results"`
+	}
+	data.Results = pkgs
+	w := resp.Start(web.StatusOK, web.Header{web.HeaderContentType: {"application/json; charset=uft-8"}})
+	return json.NewEncoder(w).Encode(&data)
+}
+
+func handleError(resp web.Response, req *web.Request, status int, err error, r interface{}) {
+	logError(req, err, r)
+	switch status {
+	case 0:
+		// nothing to do
+	case web.StatusNotFound:
+		executeTemplate(resp, "notfound"+templateExt(req), status, nil)
+	default:
+		s := web.StatusText(status)
+		if err == errUpdateTimeout {
+			s = "Timeout getting package files from the version control system."
+		} else if e, ok := err.(*doc.RemoteError); ok {
+			s = "Error getting package files from " + e.Host + "."
+		}
+		w := resp.Start(web.StatusInternalServerError, web.Header{web.HeaderContentType: {"text/plan; charset=uft-8"}})
+		io.WriteString(w, s)
+	}
+}
+
+func handlePresentError(resp web.Response, req *web.Request, status int, err error, r interface{}) {
+	logError(req, err, r)
+	switch status {
+	case 0:
+		// nothing to do
+	default:
+		s := web.StatusText(status)
+		if doc.IsNotFound(err) {
+			s = web.StatusText(web.StatusNotFound)
+			status = web.StatusNotFound
+		} else if err == errUpdateTimeout {
+			s = "Timeout getting package files from the version control system."
+		} else if e, ok := err.(*doc.RemoteError); ok {
+			s = "Error getting package files from " + e.Host + "."
+		}
+		w := resp.Start(status, web.Header{web.HeaderContentType: {"text/plan; charset=uft-8"}})
+		io.WriteString(w, s)
+	}
+}
+
+func handleAPIError(resp web.Response, req *web.Request, status int, err error, r interface{}) {
+	logError(req, err, r)
+	switch status {
+	case 0:
+		// nothing to do
+	default:
+		var data struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		data.Error.Message = web.StatusText(status)
+		w := resp.Start(status, web.Header{web.HeaderContentType: {"application/json; charset=uft-8"}})
+		json.NewEncoder(w).Encode(&data)
+	}
+}
+
 func defaultBase(path string) string {
 	p, err := build.Default.Import(path, "", build.FindOnly)
 	if err != nil {
@@ -448,12 +505,14 @@ var (
 	db              *database.Database
 	robot           = flag.Bool("robot", false, "Robot mode")
 	baseDir         = flag.String("base", defaultBase("github.com/garyburd/gopkgdoc/gddo-server"), "Base directory for templates and static files.")
+	gzBaseDir       = flag.String("gzbase", "", "Base directory for compressed static files.")
 	presentBaseDir  = flag.String("presentBase", defaultBase("code.google.com/p/go.talks/present"), "Base directory for templates and static files.")
 	getTimeout      = flag.Duration("get_timeout", 8*time.Second, "Time to wait for package update from the VCS.")
 	firstGetTimeout = flag.Duration("first_get_timeout", 5*time.Second, "Time to wait for first fetch of package from the VCS.")
-	maxAge          = flag.Duration("max_age", 24*time.Hour, "Crawl package documents older than this age.")
+	maxAge          = flag.Duration("max_age", 24*time.Hour, "Update package documents older than this age.")
 	httpAddr        = flag.String("http", ":8080", "Listen for HTTP connections on this address")
-	crawlInterval   = flag.Duration("crawl_interval", 0, "Package crawler sleeps for this duration between package updates. Zero disables crawl.")
+	crawlInterval   = flag.Duration("crawl_interval", 0, "Package updater sleeps for this duration between package updates. Zero disables updates.")
+	githubInterval  = flag.Duration("github_interval", 0, "Github updates crawler sleeps for this duration between fetches. Zero disables the crawler.")
 	popularInterval = flag.Duration("popular_interval", 0, "Google Analytics fetcher sleeps for this duration between updates. Zero disables updates.")
 	secretsPath     = flag.String("secrets", "secrets.json", "Path to file containing application ids and credentials for other services.")
 	secrets         struct {
@@ -552,25 +611,49 @@ func main() {
 		go crawl(*crawlInterval)
 	}
 
-	sfo := &web.ServeFileOptions{
-		Header: web.Header{
-			web.HeaderCacheControl: {"public, max-age=3600"},
-		},
+	if *githubInterval > 0 {
+		go crawlGithubUpdates(*githubInterval)
 	}
+
+	playScript, err := readPlayScript(*presentBaseDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	staticConfig := &web.StaticConfig{
+		Header:      web.Header{web.HeaderCacheControl: {"public, max-age=3600"}},
+		Directory:   *baseDir,
+		GzDirectory: *gzBaseDir,
+	}
+	presentStaticConfig := &web.StaticConfig{
+		Header:    web.Header{web.HeaderCacheControl: {"public, max-age=3600"}},
+		Directory: *presentBaseDir,
+	}
+
+	h := web.NewHostRouter()
 
 	r := web.NewRouter()
 	r.Add("/").GetFunc(servePresentHome)
 	r.Add("/compile").PostFunc(serveCompile)
-	r.Add("/favicon.ico").Get(web.FileHandler(filepath.Join(*baseDir, "static", "favicon.ico"), nil))
-	r.Add("/google3d2f3cd4cc2bb44b.html").Get(web.FileHandler(filepath.Join(*baseDir, "static", "google3d2f3cd4cc2bb44b.html"), nil))
-	r.Add("/humans.txt").Get(web.FileHandler(filepath.Join(*baseDir, "static", "humans.txt"), nil))
-	r.Add("/play.js").Get(web.CatFilesHandler(sfo, filepath.Join(*presentBaseDir, "js"), "jquery.js", "playground.js", "play.js"))
-	r.Add("/robots.txt").Get(web.FileHandler(filepath.Join(*baseDir, "static", "presentRobots.txt"), nil))
-	r.Add("/static/<path:.*>").Get(web.DirectoryHandler(filepath.Join(*presentBaseDir, "static"), sfo))
+	r.Add("/favicon.ico").Get(staticConfig.FileHandler("static/favicon.ico"))
+	r.Add("/google3d2f3cd4cc2bb44b.html").Get(staticConfig.FileHandler("static/google3d2f3cd4cc2bb44b.html"))
+	r.Add("/humans.txt").Get(staticConfig.FileHandler("static/humans.txt"))
+	r.Add("/play.js").Get(web.DataHandler(playScript, web.Header{web.HeaderContentType: {"text/javascript"}}))
+	r.Add("/robots.txt").Get(staticConfig.FileHandler("static/presentRobots.txt"))
+	r.Add("/static/<path:.*>").Get(presentStaticConfig.DirectoryHandler("static"))
 	r.Add("/<path:.+>").GetFunc(servePresentation)
 
-	h := web.NewHostRouter()
 	h.Add("talks.<:.*>", web.ErrorHandler(handlePresentError, web.FormAndCookieHandler(6000, false, r)))
+
+	r = web.NewRouter()
+	r.Add("/favicon.ico").Get(staticConfig.FileHandler("static/favicon.ico"))
+	r.Add("/google3d2f3cd4cc2bb44b.html").Get(staticConfig.FileHandler("static/google3d2f3cd4cc2bb44b.html"))
+	r.Add("/humans.txt").Get(staticConfig.FileHandler("static/humans.txt"))
+	r.Add("/robots.txt").Get(staticConfig.FileHandler("static/presentRobots.txt"))
+	r.Add("/search").GetFunc(serveAPISearch)
+	r.Add("/packages").GetFunc(serveAPIPackages)
+
+	h.Add("api.<:.*>", web.ErrorHandler(handleAPIError, web.FormAndCookieHandler(6000, false, r)))
 
 	r = web.NewRouter()
 	r.Add("/").GetFunc(serveHome)
@@ -579,13 +662,13 @@ func main() {
 	r.Add("/-/go").GetFunc(serveGoIndex)
 	r.Add("/-/index").GetFunc(serveIndex)
 	r.Add("/-/refresh").PostFunc(serveRefresh)
-	r.Add("/-/static/<path:.*>").Get(web.DirectoryHandler(filepath.Join(*baseDir, "static"), sfo))
+	r.Add("/-/static/<path:.*>").Get(staticConfig.DirectoryHandler("static"))
 	r.Add("/a/index").Get(web.RedirectHandler("/-/index", 301))
 	r.Add("/about").Get(web.RedirectHandler("/-/about", 301))
-	r.Add("/favicon.ico").Get(web.FileHandler(filepath.Join(*baseDir, "static", "favicon.ico"), nil))
-	r.Add("/google3d2f3cd4cc2bb44b.html").Get(web.FileHandler(filepath.Join(*baseDir, "static", "google3d2f3cd4cc2bb44b.html"), nil))
-	r.Add("/humans.txt").Get(web.FileHandler(filepath.Join(*baseDir, "static", "humans.txt"), nil))
-	r.Add("/robots.txt").Get(web.FileHandler(filepath.Join(*baseDir, "static", "robots.txt"), nil))
+	r.Add("/favicon.ico").Get(staticConfig.FileHandler("static/favicon.ico"))
+	r.Add("/google3d2f3cd4cc2bb44b.html").Get(staticConfig.FileHandler("static/google3d2f3cd4cc2bb44b.html"))
+	r.Add("/humans.txt").Get(staticConfig.FileHandler("static/humans.txt"))
+	r.Add("/robots.txt").Get(staticConfig.FileHandler("static/robots.txt"))
 	r.Add("/C").Get(web.RedirectHandler("http://golang.org/doc/articles/c_go_cgo.html", 301))
 	r.Add("/<path:.+>").GetFunc(servePackage)
 

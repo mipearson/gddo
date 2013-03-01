@@ -18,13 +18,28 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"crypto/md5"
+	"encoding/hex"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"path"
 	"regexp"
+	"sort"
 	"strings"
 )
+
+type byHash []byte
+
+func (p byHash) Len() int { return len(p) / md5.Size }
+func (p byHash) Less(i, j int) bool {
+	return -1 == bytes.Compare(p[i*md5.Size:(i+1)*md5.Size], p[j*md5.Size:(j+1)*md5.Size])
+}
+func (p byHash) Swap(i, j int) {
+	var temp [md5.Size]byte
+	copy(temp[:], p[i*md5.Size:])
+	copy(p[i*md5.Size:(i+1)*md5.Size], p[j*md5.Size:])
+	copy(p[j*md5.Size:], temp[:])
+}
 
 var launchpadPattern = regexp.MustCompile(`^launchpad\.net/(?P<repo>(?P<project>[a-z0-9A-Z_.\-]+)(?P<series>/[a-z0-9A-Z_.\-]+)?|~[a-z0-9A-Z_.\-]+/(\+junk|[a-z0-9A-Z_.\-]+)/[a-z0-9A-Z_.\-]+)(?P<dir>/[a-z0-9A-Z_.\-/]+)*$`)
 
@@ -45,7 +60,7 @@ func getLaunchpadDoc(client *http.Client, match map[string]string, savedEtag str
 		}
 	}
 
-	p, etag, err := httpGetBytesCompare(client, expand("https://bazaar.launchpad.net/+branch/{repo}/tarball", match), savedEtag)
+	p, err := httpGetBytes(client, expand("https://bazaar.launchpad.net/+branch/{repo}/tarball", match), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -58,26 +73,36 @@ func getLaunchpadDoc(client *http.Client, match map[string]string, savedEtag str
 
 	tr := tar.NewReader(gzr)
 
+	var hash []byte
 	inTree := false
 	dirPrefix := expand("+branch/{repo}{dir}/", match)
 	var files []*source
 	for {
-		hdr, err := tr.Next()
+		h, err := tr.Next()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
 			return nil, err
 		}
-		if !strings.HasPrefix(hdr.Name, dirPrefix) {
+		d, f := path.Split(h.Name)
+		if !isDocFile(f) {
+			continue
+		}
+		b := make([]byte, h.Size)
+		if _, err := io.ReadFull(tr, b); err != nil {
+			return nil, err
+		}
+
+		m := md5.New()
+		m.Write(b)
+		hash = m.Sum(hash)
+
+		if !strings.HasPrefix(h.Name, dirPrefix) {
 			continue
 		}
 		inTree = true
-		if d, f := path.Split(hdr.Name); d == dirPrefix && isDocFile(f) {
-			b, err := ioutil.ReadAll(tr)
-			if err != nil {
-				return nil, err
-			}
+		if d == dirPrefix {
 			files = append(files, &source{
 				name:      f,
 				browseURL: expand("http://bazaar.launchpad.net/+branch/{repo}/view/head:{dir}/{0}", match, f),
@@ -89,9 +114,18 @@ func getLaunchpadDoc(client *http.Client, match map[string]string, savedEtag str
 		return nil, NotFoundError{"Directory tree does not contain Go files."}
 	}
 
+	sort.Sort(byHash(hash))
+	m := md5.New()
+	m.Write(hash)
+	hash = m.Sum(hash[:0])
+	etag := hex.EncodeToString(hash)
+	if etag == savedEtag {
+		return nil, ErrNotModified
+	}
+
 	b := &builder{
 		lineFmt: "#L%d",
-		pkg: &Package{
+		pdoc: &Package{
 			ImportPath:  match["importPath"],
 			ProjectRoot: expand("launchpad.net/{repo}", match),
 			ProjectName: match["repo"],

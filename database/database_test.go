@@ -55,6 +55,7 @@ func closeDB(db *database.Database) {
 
 func TestPutGet(t *testing.T) {
 	var updated = time.Unix(1221681866, 0).UTC()
+	var nextCrawl = time.Unix(1231681866, 0).UTC()
 
 	db := newDB(t)
 	defer closeDB(db)
@@ -67,14 +68,14 @@ func TestPutGet(t *testing.T) {
 		Updated:     updated,
 		Imports:     []string{"C", "errors", "github.com/user/repo/foo/bar"}, // self import for testing convenience.
 	}
-	if err := db.Put(pdoc); err != nil {
+	if err := db.Put(pdoc, nextCrawl); err != nil {
 		t.Errorf("db.Put() returned error %v", err)
 	}
-	if err := db.Put(pdoc); err != nil {
+	if err := db.Put(pdoc, time.Time{}); err != nil {
 		t.Errorf("second db.Put() returned error %v", err)
 	}
 
-	actualPdoc, actualSubdirs, actualLastCrawl, err := db.Get("github.com/user/repo/foo/bar")
+	actualPdoc, actualSubdirs, actualCrawl, err := db.Get("github.com/user/repo/foo/bar")
 	if err != nil {
 		t.Fatalf("db.Get(.../foo/bar) returned %v", err)
 	}
@@ -84,8 +85,8 @@ func TestPutGet(t *testing.T) {
 	if !reflect.DeepEqual(actualPdoc, pdoc) {
 		t.Errorf("db.Get(.../foo/bar) returned doc %v, want %v", actualPdoc, pdoc)
 	}
-	if !updated.Equal(actualLastCrawl) {
-		t.Errorf("db.get(.../foo/bar) returned crawl %v, want %v", actualLastCrawl, updated)
+	if !nextCrawl.Equal(actualCrawl) {
+		t.Errorf("db.get(.../foo/bar) returned crawl %v, want %v", actualCrawl, updated)
 	}
 
 	actualPdoc, _, _, err = db.Get("-")
@@ -138,12 +139,12 @@ func TestPutGet(t *testing.T) {
 
 	db.Query("bar")
 
-	if err := db.Put(pdoc); err != nil {
+	if err := db.Put(pdoc, time.Time{}); err != nil {
 		t.Errorf("db.Put() returned error %v", err)
 	}
 
 	if err := db.Block("github.com/user/repo"); err != nil {
-		t.Errorf("db.Block() returned error %v, err")
+		t.Errorf("db.Block() returned error %v", err)
 	}
 
 	blocked, err := db.IsBlocked("github.com/user/repo/foo/bar")

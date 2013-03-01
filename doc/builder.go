@@ -20,6 +20,7 @@ import (
 	"go/ast"
 	"go/build"
 	"go/doc"
+	"go/format"
 	"go/parser"
 	"go/printer"
 	"go/token"
@@ -27,8 +28,8 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"reflect"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -137,210 +138,68 @@ func addReferences(references map[string]bool, s []byte) {
 // builder holds the state used when building the documentation.
 type builder struct {
 	lineFmt string
-	pkg     *Package
+	pdoc    *Package
 
 	srcs        map[string]*source
 	fset        *token.FileSet
 	examples    []*doc.Example
-	buf         bytes.Buffer // scratch space for printNode method.
-	importPaths map[string]map[string]string
+	fileImports map[string]map[string]string
 	ast         *ast.Package
+	buf         []byte // scratch space for printNode method.
 }
 
-// fileImportPaths returns a package name to import path map for the file with
-// filename.
-func (b *builder) fileImportPaths(filename string) map[string]string {
-	importPaths := b.importPaths[filename]
-	if importPaths != nil {
-		return importPaths
-	}
+var nameModifiers = []func(string) string{
+	func(p string) string { return strings.TrimPrefix(p, "go") },
+	func(p string) string { return strings.TrimPrefix(p, "go.") },
+	func(p string) string { return strings.TrimSuffix(p, ".go") },
+	func(p string) string { return strings.TrimPrefix(p, "go-") },
+	func(p string) string { return strings.TrimSuffix(p, "-go") },
+	func(p string) string { return p },
+}
 
-	importPaths = make(map[string]string)
-	scores := make(map[string]int)
-	b.importPaths[filename] = importPaths
-
-	file := b.ast.Files[filename]
-	if file == nil {
-		// The code can reference files outside the known set of files
-		// when line comments are used (//line <file>:<line>).
-		return importPaths
-	}
-
-	for _, i := range file.Imports {
-		importPath, _ := strconv.Unquote(i.Path.Value)
-		if i.Name != nil {
-			importPaths[i.Name.Name] = importPath
-			scores[i.Name.Name] = 4
-		} else {
-			// Use heuristics to find package name from the last segment of
-			// the import path.
-			_, name := path.Split(importPath)
-
-			if scores[name] <= 1 {
-				if strings.HasPrefix(name, "go") {
-					n := name[len("go"):]
-					importPaths[n] = importPath
-					scores[n] = 1
+func fileImports(pkg *ast.Package) map[string]map[string]string {
+	result := make(map[string]map[string]string)
+	for fname, file := range pkg.Files {
+		importPaths := make(map[string]string)
+		scores := make(map[string]int)
+		for _, i := range file.Imports {
+			importPath, _ := strconv.Unquote(i.Path.Value)
+			if i.Name != nil {
+				importPaths[i.Name.Name] = importPath
+				scores[i.Name.Name] = len(nameModifiers)
+			} else {
+				_, name := path.Split(importPath)
+				for i, f := range nameModifiers {
+					n := f(name)
+					if i >= scores[n] {
+						importPaths[n] = importPath
+						scores[n] = i
+					}
 				}
 			}
-
-			if scores[name] <= 2 {
-				switch {
-				case strings.HasPrefix(name, "go-") || strings.HasPrefix(name, "go."):
-					n := name[len("go-"):]
-					importPaths[n] = importPath
-					scores[n] = 2
-				case strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "-go"):
-					n := name[:len(name)-len(".go")]
-					importPaths[n] = importPath
-					scores[n] = 2
-				}
-			}
-
-			if scores[name] <= 3 {
-				importPaths[name] = importPath
-				scores[name] = 3
+		}
+		for name, importPath := range importPaths {
+			if !IsValidPath(importPath) {
+				delete(importPaths, name)
 			}
 		}
+		result[fname] = importPaths
 	}
-
-	for name, importPath := range importPaths {
-		if !IsValidPath(importPath) {
-			delete(importPaths, name)
-		}
-	}
-
-	return importPaths
+	return result
 }
 
-type TypeAnnotation struct {
-	Pos, End   int
-	ImportPath string
-	Name       string
-}
-
-type Decl struct {
-	Text        string
-	Annotations []TypeAnnotation
-}
-
-type sortByPos []TypeAnnotation
-
-func (p sortByPos) Len() int           { return len(p) }
-func (p sortByPos) Less(i, j int) bool { return p[i].Pos < p[j].Pos }
-func (p sortByPos) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
-
-// annotationVisitor collects type annotations.
-type annotationVisitor struct {
-	annotations []TypeAnnotation
-	fset        *token.FileSet
-	b           *builder
-	importPaths map[string]string
-}
-
-func (v *annotationVisitor) Visit(n ast.Node) ast.Visitor {
-	switch n := n.(type) {
-	case *ast.TypeSpec:
-		if n.Type != nil {
-			ast.Walk(v, n.Type)
-		}
-		return nil
-	case *ast.FuncDecl:
-		if n.Recv != nil {
-			ast.Walk(v, n.Recv)
-		}
-		if n.Type != nil {
-			ast.Walk(v, n.Type)
-		}
-		return nil
-	case *ast.Field:
-		if n.Type != nil {
-			ast.Walk(v, n.Type)
-		}
-		return nil
-	case *ast.ValueSpec:
-		if n.Type != nil {
-			ast.Walk(v, n.Type)
-		}
-		return nil
-	case *ast.FuncLit:
-		if n.Type != nil {
-			ast.Walk(v, n.Type)
-		}
-		return nil
-	case *ast.CompositeLit:
-		if n.Type != nil {
-			ast.Walk(v, n.Type)
-		}
-		return nil
-	case *ast.Ident:
-		if !ast.IsExported(n.Name) {
-			return nil
-		}
-		v.addAnnotation(n, "", n.Name)
-		return nil
-	case *ast.SelectorExpr:
-		if !ast.IsExported(n.Sel.Name) {
-			return nil
-		}
-		if i, ok := n.X.(*ast.Ident); ok {
-			v.addAnnotation(n, i.Name, n.Sel.Name)
-			return nil
-		}
-	}
-	return v
-}
-
-const packageWrapper = "package p\n"
-
-func (v *annotationVisitor) addAnnotation(n ast.Node, packageName string, name string) {
-	pos := v.fset.Position(n.Pos())
-	end := v.fset.Position(n.End())
-	importPath := ""
-	if packageName != "" {
-		importPath = v.importPaths[packageName]
-		if importPath == "" {
-			return
-		}
-	}
-	v.annotations = append(v.annotations, TypeAnnotation{
-		pos.Offset - len(packageWrapper),
-		end.Offset - len(packageWrapper),
-		importPath,
-		name})
-}
-
-func (b *builder) printDecl(decl ast.Node) Decl {
-	b.buf.Reset()
-	b.buf.WriteString(packageWrapper)
-	err := (&printer.Config{Mode: printer.UseSpaces, Tabwidth: 4}).Fprint(&b.buf, b.fset, decl)
-	if err != nil {
-		return Decl{Text: err.Error()}
-	}
-	text := string(b.buf.Bytes()[len(packageWrapper):])
-	position := b.fset.Position(decl.Pos())
-	v := &annotationVisitor{
-		b:           b,
-		fset:        token.NewFileSet(),
-		importPaths: b.fileImportPaths(position.Filename),
-	}
-	f, err := parser.ParseFile(v.fset, "", b.buf.Bytes(), 0)
-	if err != nil {
-		return Decl{Text: text}
-	}
-	ast.Walk(v, f)
-	sort.Sort(sortByPos(v.annotations))
-	return Decl{Text: text, Annotations: v.annotations}
+func (b *builder) printDecl(decl ast.Node) (d Code) {
+	d, b.buf = printDecl(decl, b.fset, b.fileImports, b.buf)
+	return
 }
 
 func (b *builder) printNode(node interface{}) string {
-	b.buf.Reset()
-	err := (&printer.Config{Mode: printer.UseSpaces, Tabwidth: 4}).Fprint(&b.buf, b.fset, node)
+	b.buf = b.buf[:0]
+	err := (&printer.Config{Mode: printer.UseSpaces, Tabwidth: 4}).Fprint(sliceWriter{&b.buf}, b.fset, node)
 	if err != nil {
-		b.buf.Reset()
-		b.buf.WriteString(err.Error())
+		return err.Error()
 	}
-	return b.buf.String()
+	return string(b.buf)
 }
 
 func (b *builder) printPos(pos token.Pos) string {
@@ -354,7 +213,7 @@ func (b *builder) printPos(pos token.Pos) string {
 }
 
 type Value struct {
-	Decl Decl
+	Decl Code
 	URL  string
 	Doc  string
 }
@@ -371,10 +230,36 @@ func (b *builder) values(vdocs []*doc.Value) []*Value {
 	return result
 }
 
+type Note struct {
+	URL  string
+	UID  string
+	Body string
+}
+
+func (b *builder) notes(gnotes map[string][]*doc.Note) map[string][]*Note {
+	if len(gnotes) == 0 {
+		return nil
+	}
+	notes := make(map[string][]*Note)
+	for tag, gvalues := range gnotes {
+		values := make([]*Note, len(gvalues))
+		for i := range gvalues {
+			values[i] = &Note{
+				URL:  b.printPos(gvalues[i].Pos),
+				UID:  gvalues[i].UID,
+				Body: strings.TrimSpace(gvalues[i].Body),
+			}
+		}
+		notes[tag] = values
+	}
+	return notes
+}
+
 type Example struct {
 	Name   string
 	Doc    string
-	Code   string
+	Code   Code
+	Play   string
 	Output string
 }
 
@@ -418,13 +303,24 @@ func (b *builder) getExamples(name string) []*Example {
 			// drop output, as the output comment will appear in the code
 			output = ""
 		}
-		docs = append(docs, &Example{Name: n, Doc: e.Doc, Code: code, Output: output})
+
+		play := ""
+		if e.Play != nil {
+			b.buf = b.buf[:0]
+			if err := format.Node(sliceWriter{&b.buf}, b.fset, e.Play); err != nil {
+				play = err.Error()
+			} else {
+				play = string(b.buf)
+			}
+		}
+
+		docs = append(docs, &Example{Name: n, Doc: e.Doc, Code: Code{Text: code}, Output: output, Play: play})
 	}
 	return docs
 }
 
 type Func struct {
-	Decl     Decl
+	Decl     Code
 	URL      string
 	Doc      string
 	Name     string
@@ -457,15 +353,17 @@ func (b *builder) funcs(fdocs []*doc.Func) []*Func {
 }
 
 type Type struct {
-	Doc      string
-	Name     string
-	Decl     Decl
-	URL      string
-	Consts   []*Value
-	Vars     []*Value
-	Funcs    []*Func
-	Methods  []*Func
-	Examples []*Example
+	Doc        string
+	Name       string
+	Decl       Code
+	URL        string
+	Kind       reflect.Kind
+	Consts     []*Value
+	Vars       []*Value
+	Funcs      []*Func
+	Methods    []*Func
+	Examples   []*Example
+	Signatures []MethodSignature
 }
 
 func (b *builder) types(tdocs []*doc.Type) []*Type {
@@ -506,7 +404,7 @@ func (s *source) IsDir() bool        { return false }
 func (s *source) Sys() interface{}   { return nil }
 
 func (b *builder) readDir(dir string) ([]os.FileInfo, error) {
-	if dir != b.pkg.ImportPath {
+	if dir != b.pdoc.ImportPath {
 		panic("unexpected")
 	}
 	fis := make([]os.FileInfo, 0, len(b.srcs))
@@ -517,8 +415,8 @@ func (b *builder) readDir(dir string) ([]os.FileInfo, error) {
 }
 
 func (b *builder) openFile(path string) (io.ReadCloser, error) {
-	if strings.HasPrefix(path, b.pkg.ImportPath+"/") {
-		if src, ok := b.srcs[path[len(b.pkg.ImportPath)+1:]]; ok {
+	if strings.HasPrefix(path, b.pdoc.ImportPath+"/") {
+		if src, ok := b.srcs[path[len(b.pdoc.ImportPath)+1:]]; ok {
 			return ioutil.NopCloser(bytes.NewReader(src.data)), nil
 		}
 	}
@@ -526,7 +424,7 @@ func (b *builder) openFile(path string) (io.ReadCloser, error) {
 }
 
 // PackageVersion is modified when previously stored packages are invalid.
-const PackageVersion = "5"
+const PackageVersion = "6"
 
 type Package struct {
 	// The import path for this package.
@@ -571,6 +469,9 @@ type Package struct {
 	// True if package documentation is incomplete.
 	Truncated bool
 
+	// Environment
+	GOOS, GOARCH string
+
 	// Top-level declarations.
 	Consts []*Value
 	Funcs  []*Func
@@ -580,7 +481,8 @@ type Package struct {
 	// Package examples
 	Examples []*Example
 
-	Bugs []string
+	Notes map[string][]*Note
+	Bugs  []string
 
 	// Source.
 	BrowseURL string
@@ -597,9 +499,15 @@ type Package struct {
 	XTestImports []string
 }
 
+var goEnvs = []struct{ GOOS, GOARCH string }{
+	{"linux", "amd64"},
+	{"darwin", "amd64"},
+	{"windows", "amd64"},
+}
+
 func (b *builder) build(srcs []*source) (*Package, error) {
 
-	b.pkg.Updated = time.Now().UTC()
+	b.pdoc.Updated = time.Now().UTC()
 
 	references := make(map[string]bool)
 	b.srcs = make(map[string]*source)
@@ -612,15 +520,14 @@ func (b *builder) build(srcs []*source) (*Package, error) {
 	}
 
 	for r := range references {
-		b.pkg.References = append(b.pkg.References, r)
+		b.pdoc.References = append(b.pdoc.References, r)
 	}
 
 	if len(b.srcs) == 0 {
-		return b.pkg, nil
+		return b.pdoc, nil
 	}
 
 	b.fset = token.NewFileSet()
-	b.importPaths = make(map[string]map[string]string)
 
 	// Find the package and associated files.
 
@@ -637,12 +544,23 @@ func (b *builder) build(srcs []*source) (*Package, error) {
 		OpenFile:      func(path string) (r io.ReadCloser, err error) { return b.openFile(path) },
 		Compiler:      "gc",
 	}
-	pkg, err := ctxt.ImportDir(b.pkg.ImportPath, 0)
-	if _, ok := err.(*build.NoGoError); ok {
-		return b.pkg, nil
-	} else if err != nil {
-		b.pkg.Errors = append(b.pkg.Errors, err.Error())
-		return b.pkg, nil
+
+	var err error
+	var pkg *build.Package
+
+	for _, env := range goEnvs {
+		ctxt.GOOS = env.GOOS
+		ctxt.GOARCH = env.GOARCH
+		pkg, err = ctxt.ImportDir(b.pdoc.ImportPath, 0)
+		if _, ok := err.(*build.NoGoError); !ok {
+			break
+		}
+	}
+	if err != nil {
+		if _, ok := err.(*build.NoGoError); !ok {
+			b.pdoc.Errors = append(b.pdoc.Errors, err.Error())
+		}
+		return b.pdoc, nil
 	}
 
 	// Parse the Go files
@@ -658,54 +576,56 @@ func (b *builder) build(srcs []*source) (*Package, error) {
 		for _, name := range append(pkg.GoFiles, pkg.CgoFiles...) {
 			file, err := parser.ParseFile(b.fset, name, b.srcs[name].data, parser.ParseComments)
 			if err != nil {
-				b.pkg.Errors = append(b.pkg.Errors, err.Error())
+				b.pdoc.Errors = append(b.pdoc.Errors, err.Error())
 				continue
 			}
-			b.pkg.Files = append(b.pkg.Files, &File{Name: name, URL: b.srcs[name].browseURL})
-			b.pkg.SourceSize += len(b.srcs[name].data)
+			b.pdoc.Files = append(b.pdoc.Files, &File{Name: name, URL: b.srcs[name].browseURL})
+			b.pdoc.SourceSize += len(b.srcs[name].data)
 			b.ast.Files[name] = file
 		}
 	}
+	b.fileImports = fileImports(b.ast)
 
 	// Find examples in the test files.
 
 	for _, name := range append(pkg.TestGoFiles, pkg.XTestGoFiles...) {
 		file, err := parser.ParseFile(b.fset, name, b.srcs[name].data, parser.ParseComments)
 		if err != nil {
-			b.pkg.Errors = append(b.pkg.Errors, err.Error())
+			b.pdoc.Errors = append(b.pdoc.Errors, err.Error())
 			continue
 		}
-		b.pkg.TestFiles = append(b.pkg.TestFiles, &File{Name: name, URL: b.srcs[name].browseURL})
-		b.pkg.TestSourceSize += len(b.srcs[name].data)
+		b.pdoc.TestFiles = append(b.pdoc.TestFiles, &File{Name: name, URL: b.srcs[name].browseURL})
+		b.pdoc.TestSourceSize += len(b.srcs[name].data)
 		b.examples = append(b.examples, doc.Examples(file)...)
 	}
 
 	b.vetPackage()
 
 	mode := doc.Mode(0)
-	if b.pkg.ImportPath == "builtin" {
+	if b.pdoc.ImportPath == "builtin" {
 		mode |= doc.AllDecls
 	}
 
-	pdoc := doc.New(b.ast, b.pkg.ImportPath, mode)
+	pdoc := doc.New(b.ast, b.pdoc.ImportPath, mode)
 
-	b.pkg.Name = pdoc.Name
-	b.pkg.Doc = strings.TrimRight(pdoc.Doc, " \t\n\r")
-	b.pkg.Synopsis = synopsis(b.pkg.Doc)
+	b.pdoc.Name = pdoc.Name
+	b.pdoc.Doc = strings.TrimRight(pdoc.Doc, " \t\n\r")
+	b.pdoc.Synopsis = synopsis(b.pdoc.Doc)
 
-	b.pkg.Examples = b.getExamples("")
-	b.pkg.IsCmd = pkg.IsCommand()
+	b.pdoc.Examples = b.getExamples("")
+	b.pdoc.IsCmd = pkg.IsCommand()
+	b.pdoc.GOOS = ctxt.GOOS
+	b.pdoc.GOARCH = ctxt.GOARCH
 
-	b.pkg.Consts = b.values(pdoc.Consts)
-	b.pkg.Funcs = b.funcs(pdoc.Funcs)
-	b.pkg.Types = b.types(pdoc.Types)
-	b.pkg.Vars = b.values(pdoc.Vars)
+	b.pdoc.Consts = b.values(pdoc.Consts)
+	b.pdoc.Funcs = b.funcs(pdoc.Funcs)
+	b.pdoc.Types = b.types(pdoc.Types)
+	b.pdoc.Vars = b.values(pdoc.Vars)
+	b.pdoc.Notes = b.notes(pdoc.Notes)
 
-	b.pkg.Bugs = pdoc.Bugs
+	b.pdoc.Imports = pkg.Imports
+	b.pdoc.TestImports = pkg.TestImports
+	b.pdoc.XTestImports = pkg.XTestImports
 
-	b.pkg.Imports = pkg.Imports
-	b.pkg.TestImports = pkg.TestImports
-	b.pkg.XTestImports = pkg.XTestImports
-
-	return b.pkg, nil
+	return b.pdoc, nil
 }

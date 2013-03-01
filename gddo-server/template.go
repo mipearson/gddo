@@ -21,8 +21,6 @@ import (
 	"errors"
 	"fmt"
 	godoc "go/doc"
-	"go/scanner"
-	"go/token"
 	htemp "html/template"
 	"io"
 	"io/ioutil"
@@ -32,7 +30,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"sort"
 	"strings"
 	"sync"
 	ttemp "text/template"
@@ -167,75 +164,55 @@ func commentTextFn(v string) string {
 	return string(p)
 }
 
-type sortByPos []doc.TypeAnnotation
+type sortByPos []doc.Annotation
 
 func (p sortByPos) Len() int           { return len(p) }
 func (p sortByPos) Less(i, j int) bool { return p[i].Pos < p[j].Pos }
 func (p sortByPos) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
-func formatCode(src []byte, annotations []doc.TypeAnnotation) htemp.HTML {
+var period = []byte{'.'}
 
-	// Collect comment positions.
-	var (
-		comments []doc.TypeAnnotation
-		s        scanner.Scanner
-	)
-	fset := token.NewFileSet()
-	file := fset.AddFile("", fset.Base(), len(src))
-	s.Init(file, src, nil, scanner.ScanComments)
-commentLoop:
-	for {
-		pos, tok, lit := s.Scan()
-		switch tok {
-		case token.EOF:
-			break commentLoop
-		case token.COMMENT:
-			p := file.Offset(pos)
-			comments = append(comments, doc.TypeAnnotation{Pos: p, End: p + len(lit)})
-		}
-	}
-
-	// Merge type annotations and comments without modifying the caller's slice
-	// of annoations.
-	switch {
-	case len(comments) == 0:
-		// nothing to do
-	case len(annotations) == 0:
-		annotations = comments
-	default:
-		annotations = append(comments, annotations...)
-		sort.Sort(sortByPos(annotations))
-	}
-
+func formatCode(src []byte, annotations []doc.Annotation) htemp.HTML {
 	var buf bytes.Buffer
 	last := 0
 	for _, a := range annotations {
 		htemp.HTMLEscape(&buf, src[last:a.Pos])
-		if a.Name != "" {
+		switch a.Kind {
+		case doc.LinkAnnotation:
 			p := a.ImportPath
 			if p != "" {
 				p = "/" + p
 			}
+			n := src[a.Pos:a.End]
+			if i := bytes.LastIndex(n, period); i > 0 {
+				n = n[i+1:]
+			}
 			buf.WriteString(`<a href="`)
 			buf.WriteString(escapePath(p))
 			buf.WriteByte('#')
-			buf.WriteString(escapePath(a.Name))
+			buf.WriteString(escapePath(string(n)))
 			buf.WriteString(`">`)
 			htemp.HTMLEscape(&buf, src[a.Pos:a.End])
 			buf.WriteString(`</a>`)
-		} else {
+		case doc.CommentAnnotation:
 			buf.WriteString(`<span class="com">`)
 			htemp.HTMLEscape(&buf, src[a.Pos:a.End])
 			buf.WriteString(`</span>`)
+		case doc.AnchorAnnotation:
+			buf.WriteString(`<span id="`)
+			htemp.HTMLEscape(&buf, src[a.Pos:a.End])
+			buf.WriteString(`">`)
+			htemp.HTMLEscape(&buf, src[a.Pos:a.End])
+			buf.WriteString(`</span>`)
 		}
-		last = a.End
+		last = int(a.End)
 	}
 	htemp.HTMLEscape(&buf, src[last:])
 	return htemp.HTML(buf.String())
 }
 
 // declFn formats a Decl as HTML.
-func declFn(decl doc.Decl) htemp.HTML {
+func declFn(decl doc.Code) htemp.HTML {
 	return formatCode([]byte(decl.Text), decl.Annotations)
 }
 
@@ -246,6 +223,34 @@ func exampleFn(s string) htemp.HTML {
 func pageNameFn(pdoc *doc.Package) string {
 	_, name := path.Split(pdoc.ImportPath)
 	return name
+}
+
+func hasExamplesFn(pdoc *doc.Package) bool {
+	if len(pdoc.Examples) > 0 {
+		return true
+	}
+	for _, f := range pdoc.Funcs {
+		if len(f.Examples) > 0 {
+			return true
+		}
+	}
+	for _, t := range pdoc.Types {
+		if len(t.Examples) > 0 {
+			return true
+		}
+		for _, f := range t.Funcs {
+			if len(f.Examples) > 0 {
+				return true
+			}
+		}
+		for _, m := range t.Methods {
+			if len(m.Examples) > 0 {
+				return true
+			}
+		}
+
+	}
+	return false
 }
 
 type crumb struct {
@@ -299,81 +304,12 @@ func breadcrumbsFn(pdoc *doc.Package, templateName string) htemp.HTML {
 	return htemp.HTML(buf.String())
 }
 
-type texample struct {
-	*doc.Example
-	Object     interface{}
-	Id         string
-	InternalId string
-}
-
-func appendExample(examples []*texample, object interface{}, n1, n2 string, example *doc.Example) []*texample {
-	under := ""
-	if n2 != "" {
-		under = "_"
-	}
-	dash := ""
-	if example.Name != "" {
-		dash = "-"
-	}
-	examples = append(examples, &texample{
-		Object:     object,
-		Example:    example,
-		Id:         fmt.Sprintf("_example_%s%s%s%s%s", n1, under, n2, dash, example.Name),
-		InternalId: fmt.Sprintf("_example-%d", len(examples)),
-	})
-	return examples
-}
-
-func allExamplesFn(pdoc *doc.Package) (examples []*texample) {
-	for _, e := range pdoc.Examples {
-		examples = appendExample(examples, pdoc, "package", "", e)
-	}
-	for _, f := range pdoc.Funcs {
-		for _, e := range f.Examples {
-			examples = appendExample(examples, f, f.Name, "", e)
-		}
-	}
-	for _, t := range pdoc.Types {
-		for _, e := range t.Examples {
-			examples = appendExample(examples, t, t.Name, "", e)
-		}
-		for _, f := range t.Funcs {
-			for _, e := range f.Examples {
-				examples = appendExample(examples, f, f.Name, "", e)
-			}
-		}
-		for _, f := range t.Methods {
-			for _, e := range f.Examples {
-				examples = appendExample(examples, f, t.Name, f.Name, e)
-			}
-		}
-	}
-	return
-}
-
-func objectExamplesFn(object interface{}, all []*texample) (result []*texample) {
-	for _, e := range all {
-		if e.Object == object {
-			result = append(result, e)
-		}
-	}
-	return
-}
-
 func gaAccountFn() string {
 	return secrets.GAAccount
 }
 
-func elemFn(t *htemp.Template, e present.Elem) (htemp.HTML, error) {
-	var buf bytes.Buffer
-	if err := t.ExecuteTemplate(&buf, e.TemplateName(), e); err != nil {
-		return "", err
-	}
-	return htemp.HTML(buf.Bytes()), nil
-}
-
-func headerLevelFn(e present.Section) int {
-	return len(e.Number) + 1
+func noteTitleFn(s string) string {
+	return strings.Title(strings.ToLower(s))
 }
 
 var contentTypes = map[string]string{
@@ -411,20 +347,17 @@ func parseHTMLTemplates(sets [][]string) error {
 		templateName := set[0]
 		t := htemp.New("")
 		t.Funcs(htemp.FuncMap{
-			"allExamples":       allExamplesFn,
 			"breadcrumbs":       breadcrumbsFn,
 			"comment":           commentFn,
 			"decl":              declFn,
 			"equal":             reflect.DeepEqual,
 			"example":           exampleFn,
+			"hasExamples":       hasExamplesFn,
 			"gaAccount":         gaAccountFn,
 			"importPath":        importPathFn,
-			"isFunc":            func(v interface{}) bool { _, ok := v.(*doc.Func); return ok },
-			"isPackage":         func(v interface{}) bool { _, ok := v.(*doc.Package); return ok },
-			"isType":            func(v interface{}) bool { _, ok := v.(*doc.Type); return ok },
 			"isValidImportPath": doc.IsValidPath,
 			"map":               mapFn,
-			"objectExamples":    objectExamplesFn,
+			"noteTitle":         noteTitleFn,
 			"pageName":          pageNameFn,
 			"relativePath":      relativePathFn,
 			"relativeTime":      relativeTime,

@@ -206,7 +206,6 @@ func httpGetBytesNoneMatch(client *http.Client, url string, etag string) ([]byte
 	default:
 		return nil, "", &RemoteError{req.URL.Host, fmt.Errorf("get %s -> %d", url, resp.StatusCode)}
 	}
-	panic("unreachable")
 }
 
 // httpGet gets the specified resource. ErrNotFound is returned if the
@@ -224,4 +223,11 @@ func httpGetBytesCompare(client *http.Client, url string, savedEtag string) ([]b
 		err = ErrNotModified
 	}
 	return p, etag, err
+}
+
+type sliceWriter struct{ p *[]byte }
+
+func (w sliceWriter) Write(p []byte) (int, error) {
+	*w.p = append(*w.p, p...)
+	return len(p), nil
 }

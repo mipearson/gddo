@@ -71,34 +71,49 @@ func lookupURLTemplate(repo, dir, tag string) (string, map[string]string, string
 
 type vcsCmd struct {
 	schemes  []string
-	download func(*http.Client, string, string, string) (string, string, error)
+	download func([]string, string, string) (string, string, error)
 }
 
 var vcsCmds = map[string]*vcsCmd{
 	"git": &vcsCmd{
-		schemes:  []string{"https", "http"},
+		schemes:  []string{"http", "https", "git"},
 		download: downloadGit,
 	},
 }
 
-var lsremoteRe = regexp.MustCompile(`[0-9a-f]{4}([0-9a-f]{40}) refs/(?:tags|heads)/(.+)\n`)
+var lsremoteRe = regexp.MustCompile(`(?m)^([0-9a-f]{40})\s+refs/(?:tags|heads)/(.+)$`)
 
-func downloadGit(client *http.Client, scheme, repo, savedEtag string) (string, string, error) {
-	p, err := httpGetBytes(client, scheme+"://"+repo+".git/info/refs?service=git-upload-pack", nil)
-	if err != nil {
-		return "", "", errNoMatch
+func downloadGit(schemes []string, repo, savedEtag string) (string, string, error) {
+	var p []byte
+	var scheme string
+	for i := range schemes {
+		cmd := exec.Command("git", "ls-remote", "--heads", "--tags", schemes[i]+"://"+repo+".git")
+		log.Println(strings.Join(cmd.Args, " "))
+		var err error
+		p, err = cmd.Output()
+		if err == nil {
+			scheme = schemes[i]
+			break
+		}
+	}
+
+	if scheme == "" {
+		return "", "", NotFoundError{"VCS not found"}
 	}
 
 	tags := make(map[string]string)
 	for _, m := range lsremoteRe.FindAllSubmatch(p, -1) {
 		tags[string(m[2])] = string(m[1])
 	}
+
 	tag, commit, err := bestTag(tags, "master")
 	if err != nil {
 		return "", "", err
 	}
 
-	if commit == savedEtag {
+	etag := scheme + "-" + commit
+
+	if etag == savedEtag {
 		return "", "", ErrNotModified
 	}
 
@@ -109,16 +124,16 @@ func downloadGit(client *http.Client, scheme, repo, savedEtag string) (string, s
 		if err := os.MkdirAll(dir, 0777); err != nil {
 			return "", "", err
 		}
-		log.Printf("git clone  %s://%s", scheme, repo)
 		cmd := exec.Command("git", "clone", scheme+"://"+repo, dir)
+		log.Println(strings.Join(cmd.Args, " "))
 		if err := cmd.Run(); err != nil {
 			return "", "", err
 		}
 	case string(bytes.TrimRight(p, "\n")) == commit:
-		return tag, commit, nil
+		return tag, etag, nil
 	default:
-		log.Printf("git fetch %s", repo)
 		cmd := exec.Command("git", "fetch")
+		log.Println(strings.Join(cmd.Args, " "))
 		cmd.Dir = dir
 		if err := cmd.Run(); err != nil {
 			return "", "", err
@@ -131,24 +146,30 @@ func downloadGit(client *http.Client, scheme, repo, savedEtag string) (string, s
 		return "", "", err
 	}
 
-	return tag, commit, nil
+	return tag, etag, nil
 }
 
-func getVCS(client *http.Client, vcs, scheme, repo, dir, etagSaved string) (*Package, error) {
-	cmd := vcsCmds[vcs]
+var vcsPattern = regexp.MustCompile(`^(?P<repo>(?:[a-z0-9.\-]+\.)+[a-z0-9.\-]+(?::[0-9]+)?/[A-Za-z0-9_.\-/]*?)\.(?P<vcs>bzr|git|hg|svn)(?P<dir>/[A-Za-z0-9_.\-/]*)?$`)
+
+func getVCSDoc(client *http.Client, match map[string]string, etagSaved string) (*Package, error) {
+	cmd := vcsCmds[match["vcs"]]
 	if cmd == nil {
-		return nil, NotFoundError{"VCS not supported: " + vcs}
+		return nil, NotFoundError{expand("VCS not supported: {vcs}", match)}
 	}
 
-	// Find protocols to use.
-
-	var schemes []string
+	scheme := match["scheme"]
 	if scheme == "" {
-		schemes = cmd.schemes
-	} else {
-		for _, s := range cmd.schemes {
-			if s == scheme {
-				schemes = []string{scheme}
+		i := strings.Index(etagSaved, "-")
+		if i > 0 {
+			scheme = etagSaved[:i]
+		}
+	}
+
+	schemes := cmd.schemes
+	if scheme != "" {
+		for i := range cmd.schemes {
+			if cmd.schemes[i] == scheme {
+				schemes = cmd.schemes[i : i+1]
 				break
 			}
 		}
@@ -156,29 +177,18 @@ func getVCS(client *http.Client, vcs, scheme, repo, dir, etagSaved string) (*Pac
 
 	// Download and checkout.
 
-	var tag, etag string
-	err := errNoMatch
-	for _, scheme := range schemes {
-		tag, etag, err = cmd.download(client, scheme, repo, etagSaved)
-		if err != errNoMatch {
-			break
-		}
-	}
-
-	switch {
-	case err == errNoMatch:
-		return nil, NotFoundError{"Repository not found."}
-	case err != nil:
+	tag, etag, err := cmd.download(schemes, match["repo"], etagSaved)
+	if err != nil {
 		return nil, err
 	}
 
 	// Find source location.
 
-	urlTemplate, urlMatch, lineFmt := lookupURLTemplate(repo, dir, tag)
+	urlTemplate, urlMatch, lineFmt := lookupURLTemplate(match["repo"], match["dir"], tag)
 
 	// Slurp source files.
 
-	d := path.Join(repoRoot, repo+"."+vcs, dir)
+	d := path.Join(repoRoot, expand("{repo}.{vcs}", match), match["dir"])
 	f, err := os.Open(d)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -211,14 +221,14 @@ func getVCS(client *http.Client, vcs, scheme, repo, dir, etagSaved string) (*Pac
 
 	b := &builder{
 		lineFmt: lineFmt,
-		pkg: &Package{
-			ImportPath:  repo + "." + vcs + dir,
-			ProjectRoot: repo + "." + vcs,
-			ProjectName: path.Base(repo),
+		pdoc: &Package{
+			ImportPath:  match["importPath"],
+			ProjectRoot: expand("{repo}.{vcs}", match),
+			ProjectName: path.Base(match["repo"]),
 			ProjectURL:  "",
 			BrowseURL:   "",
 			Etag:        etag,
-			VCS:         vcs,
+			VCS:         match["vcs"],
 		},
 	}
 

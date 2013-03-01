@@ -21,8 +21,17 @@ import (
 )
 
 var standardPath = map[string]bool{
+	"builtin": true,
+
 	// go list -f '"{{.ImportPath}}": true,'  std | grep -v exp/
-	"go/types":            true,
+	"cmd/api":             true,
+	"cmd/cgo":             true,
+	"cmd/fix":             true,
+	"cmd/go":              true,
+	"cmd/godoc":           true,
+	"cmd/gofmt":           true,
+	"cmd/vet":             true,
+	"cmd/yacc":            true,
 	"archive/tar":         true,
 	"archive/zip":         true,
 	"bufio":               true,
@@ -79,10 +88,12 @@ var standardPath = map[string]bool{
 	"go/ast":              true,
 	"go/build":            true,
 	"go/doc":              true,
+	"go/format":           true,
 	"go/parser":           true,
 	"go/printer":          true,
 	"go/scanner":          true,
 	"go/token":            true,
+	"go/types":            true,
 	"hash":                true,
 	"hash/adler32":        true,
 	"hash/crc32":          true,
@@ -120,6 +131,7 @@ var standardPath = map[string]bool{
 	"net/smtp":            true,
 	"net/textproto":       true,
 	"net/url":             true,
+	"old/netchan":         true,
 	"os":                  true,
 	"os/exec":             true,
 	"os/signal":           true,
@@ -128,7 +140,6 @@ var standardPath = map[string]bool{
 	"path/filepath":       true,
 	"reflect":             true,
 	"regexp":              true,
-	"regexp/syntax":       true,
 	"runtime":             true,
 	"runtime/cgo":         true,
 	"runtime/debug":       true,
@@ -503,7 +514,7 @@ func IsValidRemotePath(importPath string) bool {
 	return true
 }
 
-var goRepoPath = map[string]bool{"builtin": true}
+var goRepoPath = map[string]bool{}
 
 func init() {
 	for p := range standardPath {

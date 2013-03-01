@@ -25,6 +25,12 @@ The supported file extensions (.ext) are .slide and .article.
 
 This page is [[http://talks.godoc.org/github.com/garyburd/gopkgdoc/gddo-server/templates/presentHome.article][an article]].
 
+* Talks
+
+See the [[https://code.google.com/p/go-wiki/wiki/GoTalks][Go Wiki Talks page]]
+for a list of talks about Go. If you want to share your talk about Go with the
+community, then please add your talk to the wiki page.
+
 * Feedback
 
 Send your ideas, feature requests and questions to info@godoc.org. Report bugs using the 
