@@ -312,6 +312,10 @@ func noteTitleFn(s string) string {
 	return strings.Title(strings.ToLower(s))
 }
 
+func htmlCommentFn(s string) htemp.HTML {
+	return htemp.HTML("<!-- " + s + " -->")
+}
+
 var contentTypes = map[string]string{
 	".html": "text/html; charset=utf-8",
 	".txt":  "text/plain; charset=utf-8",
@@ -347,6 +351,7 @@ func parseHTMLTemplates(sets [][]string) error {
 		templateName := set[0]
 		t := htemp.New("")
 		t.Funcs(htemp.FuncMap{
+			"htmlComment":       htmlCommentFn,
 			"breadcrumbs":       breadcrumbsFn,
 			"comment":           commentFn,
 			"decl":              declFn,
