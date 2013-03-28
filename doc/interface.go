@@ -29,29 +29,6 @@ import (
 	"strconv"
 )
 
-var predeclaredTypes = map[string]bool{
-	"bool":       true,
-	"byte":       true,
-	"complex64":  true,
-	"complex128": true,
-	"error":      true,
-	"float32":    true,
-	"float64":    true,
-	"int":        true,
-	"int8":       true,
-	"int16":      true,
-	"int32":      true,
-	"int64":      true,
-	"rune":       true,
-	"string":     true,
-	"uint":       true,
-	"uint8":      true,
-	"uint16":     true,
-	"uint32":     true,
-	"uint64":     true,
-	"uintptr":    true,
-}
-
 type aborted struct{ err error }
 
 func abort(err error) { panic(aborted{err}) }
@@ -247,7 +224,7 @@ func (w *methodWriter) writeNode(n ast.Node) {
 		w.buf = append(w.buf, '#')
 		w.buf = append(w.buf, n.Sel.Name...)
 	case *ast.Ident:
-		if !predeclaredTypes[n.Name] {
+		if predeclared[n.Name] != predeclaredType {
 			w.buf = append(w.buf, w.path...)
 			w.buf = append(w.buf, '#')
 		}

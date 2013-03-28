@@ -164,29 +164,31 @@ func commentTextFn(v string) string {
 	return string(p)
 }
 
-type sortByPos []doc.Annotation
-
-func (p sortByPos) Len() int           { return len(p) }
-func (p sortByPos) Less(i, j int) bool { return p[i].Pos < p[j].Pos }
-func (p sortByPos) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
-
 var period = []byte{'.'}
 
-func formatCode(src []byte, annotations []doc.Annotation) htemp.HTML {
+func codeFn(c doc.Code) htemp.HTML {
 	var buf bytes.Buffer
 	last := 0
-	for _, a := range annotations {
+	src := []byte(c.Text)
+	for _, a := range c.Annotations {
 		htemp.HTMLEscape(&buf, src[last:a.Pos])
 		switch a.Kind {
-		case doc.LinkAnnotation:
+        case doc.PackageLinkAnnotation:
+			p := "/" + a.ImportPath
+			buf.WriteString(`<a href="`)
+			buf.WriteString(escapePath(p))
+			buf.WriteString(`">`)
+			htemp.HTMLEscape(&buf, src[a.Pos:a.End])
+			buf.WriteString(`</a>`)
+		case doc.ExportLinkAnnotation, doc.BuiltinAnnotation:
 			p := a.ImportPath
-			if p != "" {
+			if a.Kind == doc.BuiltinAnnotation {
+				p = "/builtin"
+			} else if p != "" {
 				p = "/" + p
 			}
 			n := src[a.Pos:a.End]
-			if i := bytes.LastIndex(n, period); i > 0 {
-				n = n[i+1:]
-			}
+			n = n[bytes.LastIndex(n, period)+1:]
 			buf.WriteString(`<a href="`)
 			buf.WriteString(escapePath(p))
 			buf.WriteByte('#')
@@ -204,20 +206,13 @@ func formatCode(src []byte, annotations []doc.Annotation) htemp.HTML {
 			buf.WriteString(`">`)
 			htemp.HTMLEscape(&buf, src[a.Pos:a.End])
 			buf.WriteString(`</span>`)
+		default:
+			htemp.HTMLEscape(&buf, src[a.Pos:a.End])
 		}
 		last = int(a.End)
 	}
 	htemp.HTMLEscape(&buf, src[last:])
 	return htemp.HTML(buf.String())
-}
-
-// declFn formats a Decl as HTML.
-func declFn(decl doc.Code) htemp.HTML {
-	return formatCode([]byte(decl.Text), decl.Annotations)
-}
-
-func exampleFn(s string) htemp.HTML {
-	return formatCode([]byte(s), nil)
 }
 
 func pageNameFn(pdoc *doc.Package) string {
@@ -354,9 +349,8 @@ func parseHTMLTemplates(sets [][]string) error {
 			"htmlComment":       htmlCommentFn,
 			"breadcrumbs":       breadcrumbsFn,
 			"comment":           commentFn,
-			"decl":              declFn,
+			"code":              codeFn,
 			"equal":             reflect.DeepEqual,
-			"example":           exampleFn,
 			"hasExamples":       hasExamplesFn,
 			"gaAccount":         gaAccountFn,
 			"importPath":        importPathFn,

@@ -68,9 +68,9 @@ func (v *vetVisitor) Visit(n ast.Node) ast.Visitor {
 	return v
 }
 
-func (b *builder) vetPackage() {
+func (b *builder) vetPackage(pkg *ast.Package) {
 	errors := make(map[string]token.Pos)
-	for fname, file := range b.ast.Files {
+	for fname, file := range pkg.Files {
 		for _, is := range file.Imports {
 			importPath, _ := strconv.Unquote(is.Path.Value)
 			if !IsValidPath(importPath) &&

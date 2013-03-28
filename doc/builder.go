@@ -144,7 +144,6 @@ type builder struct {
 	fset        *token.FileSet
 	examples    []*doc.Example
 	fileImports map[string]map[string]string
-	ast         *ast.Package
 	buf         []byte // scratch space for printNode method.
 }
 
@@ -314,7 +313,12 @@ func (b *builder) getExamples(name string) []*Example {
 			}
 		}
 
-		docs = append(docs, &Example{Name: n, Doc: e.Doc, Code: Code{Text: code}, Output: output, Play: play})
+		docs = append(docs, &Example{
+			Name:   n,
+			Doc:    e.Doc,
+			Code:   Code{Text: code, Annotations: commentAnnotations(code)},
+			Output: output,
+			Play:   play})
 	}
 	return docs
 }
@@ -382,6 +386,31 @@ func (b *builder) types(tdocs []*doc.Type) []*Type {
 		})
 	}
 	return result
+}
+
+func simpleImporter(imports map[string]*ast.Object, path string) (*ast.Object, error) {
+	pkg := imports[path]
+	if pkg == nil {
+		// Guess the package name without importing it. Start with the last
+		// element of the path.
+		name := path[strings.LastIndex(path, "/")+1:]
+
+		// Trim commonly used prefixes and suffixes that are not legal in a
+		// name.
+		name = strings.TrimSuffix(name, ".go")
+		name = strings.TrimSuffix(name, "-go")
+		name = strings.TrimPrefix(name, "go.")
+		name = strings.TrimPrefix(name, "go-")
+
+		// It's also common for the last element of the path to contain an
+		// extra "go" prefix, but not always. TODO: examine unresolved ids to
+		// detect when trimming the "go" prefix is appropriate.
+
+		pkg = ast.NewObj(ast.Pkg, name)
+		pkg.Data = ast.NewScope(nil)
+		imports[path] = pkg
+	}
+	return pkg, nil
 }
 
 type File struct {
@@ -546,12 +575,12 @@ func (b *builder) build(srcs []*source) (*Package, error) {
 	}
 
 	var err error
-	var pkg *build.Package
+	var bpkg *build.Package
 
 	for _, env := range goEnvs {
 		ctxt.GOOS = env.GOOS
 		ctxt.GOARCH = env.GOARCH
-		pkg, err = ctxt.ImportDir(b.pdoc.ImportPath, 0)
+		bpkg, err = ctxt.ImportDir(b.pdoc.ImportPath, 0)
 		if _, ok := err.(*build.NoGoError); !ok {
 			break
 		}
@@ -565,15 +594,15 @@ func (b *builder) build(srcs []*source) (*Package, error) {
 
 	// Parse the Go files
 
-	b.ast = &ast.Package{Name: pkg.Name, Files: make(map[string]*ast.File)}
-	if pkg.IsCommand() && b.srcs["doc.go"] != nil {
+	files := make(map[string]*ast.File)
+	if bpkg.IsCommand() && b.srcs["doc.go"] != nil {
 		file, err := parser.ParseFile(b.fset, "doc.go", b.srcs["doc.go"].data, parser.ParseComments)
 		if err == nil && file.Name.Name == "documentation" {
-			b.ast.Files["doc.go"] = file
+			files["doc.go"] = file
 		}
 	}
-	if len(b.ast.Files) == 0 {
-		for _, name := range append(pkg.GoFiles, pkg.CgoFiles...) {
+	if len(files) == 0 {
+		for _, name := range append(bpkg.GoFiles, bpkg.CgoFiles...) {
 			file, err := parser.ParseFile(b.fset, name, b.srcs[name].data, parser.ParseComments)
 			if err != nil {
 				b.pdoc.Errors = append(b.pdoc.Errors, err.Error())
@@ -581,14 +610,17 @@ func (b *builder) build(srcs []*source) (*Package, error) {
 			}
 			b.pdoc.Files = append(b.pdoc.Files, &File{Name: name, URL: b.srcs[name].browseURL})
 			b.pdoc.SourceSize += len(b.srcs[name].data)
-			b.ast.Files[name] = file
+			files[name] = file
 		}
 	}
-	b.fileImports = fileImports(b.ast)
+
+	apkg, _ := ast.NewPackage(b.fset, files, simpleImporter, nil)
+
+	b.fileImports = fileImports(apkg)
 
 	// Find examples in the test files.
 
-	for _, name := range append(pkg.TestGoFiles, pkg.XTestGoFiles...) {
+	for _, name := range append(bpkg.TestGoFiles, bpkg.XTestGoFiles...) {
 		file, err := parser.ParseFile(b.fset, name, b.srcs[name].data, parser.ParseComments)
 		if err != nil {
 			b.pdoc.Errors = append(b.pdoc.Errors, err.Error())
@@ -599,21 +631,21 @@ func (b *builder) build(srcs []*source) (*Package, error) {
 		b.examples = append(b.examples, doc.Examples(file)...)
 	}
 
-	b.vetPackage()
+	b.vetPackage(apkg)
 
 	mode := doc.Mode(0)
 	if b.pdoc.ImportPath == "builtin" {
 		mode |= doc.AllDecls
 	}
 
-	pdoc := doc.New(b.ast, b.pdoc.ImportPath, mode)
+	pdoc := doc.New(apkg, b.pdoc.ImportPath, mode)
 
 	b.pdoc.Name = pdoc.Name
 	b.pdoc.Doc = strings.TrimRight(pdoc.Doc, " \t\n\r")
 	b.pdoc.Synopsis = synopsis(b.pdoc.Doc)
 
 	b.pdoc.Examples = b.getExamples("")
-	b.pdoc.IsCmd = pkg.IsCommand()
+	b.pdoc.IsCmd = bpkg.IsCommand()
 	b.pdoc.GOOS = ctxt.GOOS
 	b.pdoc.GOARCH = ctxt.GOARCH
 
@@ -623,9 +655,9 @@ func (b *builder) build(srcs []*source) (*Package, error) {
 	b.pdoc.Vars = b.values(pdoc.Vars)
 	b.pdoc.Notes = b.notes(pdoc.Notes)
 
-	b.pdoc.Imports = pkg.Imports
-	b.pdoc.TestImports = pkg.TestImports
-	b.pdoc.XTestImports = pkg.XTestImports
+	b.pdoc.Imports = bpkg.Imports
+	b.pdoc.TestImports = bpkg.TestImports
+	b.pdoc.XTestImports = bpkg.XTestImports
 
 	return b.pdoc, nil
 }

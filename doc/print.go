@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/garyburd/gopkgdoc/doc"
