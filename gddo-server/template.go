@@ -173,7 +173,7 @@ func codeFn(c doc.Code) htemp.HTML {
 	for _, a := range c.Annotations {
 		htemp.HTMLEscape(&buf, src[last:a.Pos])
 		switch a.Kind {
-        case doc.PackageLinkAnnotation:
+		case doc.PackageLinkAnnotation:
 			p := "/" + a.ImportPath
 			buf.WriteString(`<a href="`)
 			buf.WriteString(escapePath(p))

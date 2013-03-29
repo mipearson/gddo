@@ -63,7 +63,7 @@
 {{end}}{{/* range .Types */}}
 {{end}}{{/* if .Name */}}
 
-{{with .Notes}}{{with .BUG}}<h3 id="_bugs">Bugs</h3>{{range .}}<p>{{.Body|comment}}{{end}}{{end}}{{end}}
+{{with .Notes}}{{with .BUG}}<h3 id="_bugs">Bugs</h3>{{range .}}<p>{{with .URL}}<a href="{{.}}">&#x261e;</a> {{end}}{{.Body}}{{end}}{{end}}{{end}}
 
 {{if .Name}}<h3 id="_files">{{with .BrowseURL}}<a href="{{.}}">Files</a>{{else}}Package Files{{end}}</h3><p>{{range .Files}}{{template "SourceLink" .}} {{end}}</p>{{end}}
 {{template "PkgCmdFooter" $}}
