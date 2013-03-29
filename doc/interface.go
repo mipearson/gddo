@@ -14,18 +14,19 @@
 
 // Method signature bugs:
 // - Embedded interfaces are not expanded.
-// - Interface methods are not sorted to a canonical order.
+// - Inline interface methods are not sorted to a canonical order.
 // - Array size expressions are not evaluated.
 // - Unnecessary use of () are not removed.
-// - It is assumed that predeclared types are not shadowed.
 
 package doc
 
 import (
+	"bytes"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
 	"go/ast"
+	"sort"
 	"strconv"
 )
 
@@ -44,9 +45,9 @@ func handleAbort(err *error) {
 }
 
 const (
-	embeddedMask = 1 << iota
-	exportedMask
-	allMask
+	exportedMask = 1 << 7
+	embeddedMask = 1 << 6
+	allMask      = exportedMask | embeddedMask
 )
 
 // MethodSignature represents the name, parameter types and result types of a
@@ -57,11 +58,27 @@ func (ms MethodSignature) String() string            { return hex.EncodeToString
 func (ms MethodSignature) IsEmbeddedInterface() bool { return ms[0]&embeddedMask != 0 }
 func (ms MethodSignature) IsExported() bool          { return ms[0]&exportedMask != 0 }
 
+type byMethodSignature []MethodSignature
+
+func (p byMethodSignature) Len() int           { return len(p) }
+func (p byMethodSignature) Less(i, j int) bool { return -1 == bytes.Compare(p[i][:], p[j][:]) }
+func (p byMethodSignature) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
+
 // methodWriter writes a canonical representation of a method to its buffer.
 type methodWriter struct {
-	buf         []byte
-	path        string
-	importPaths map[string]string
+	buf  []byte
+	path string
+}
+
+func (w *methodWriter) nodePath(n ast.Node) string {
+	if n, _ := n.(*ast.Ident); n != nil {
+		if obj := n.Obj; obj != nil && obj.Kind == ast.Pkg {
+			if spec, _ := obj.Decl.(*ast.ImportSpec); spec != nil {
+				return spec.Path.Value
+			}
+		}
+	}
+	return "UNKNOWN"
 }
 
 func (w *methodWriter) writeFunc(name string, n *ast.FuncType) {
@@ -212,21 +229,13 @@ func (w *methodWriter) writeNode(n ast.Node) {
 	case *ast.StructType:
 		w.writeStruct(n)
 	case *ast.SelectorExpr:
-		x, ok := n.X.(*ast.Ident)
-		if !ok {
-			abort(fmt.Errorf("Unxpected %T in SelectorExpr", n.X))
-		}
-		if n, ok := w.importPaths[x.Name]; ok {
-			w.buf = append(w.buf, n...)
-		} else {
-			w.buf = append(w.buf, x.Name...)
-		}
-		w.buf = append(w.buf, '#')
+		w.buf = append(w.buf, w.nodePath(n.X)...)
+		w.buf = append(w.buf, '.')
 		w.buf = append(w.buf, n.Sel.Name...)
 	case *ast.Ident:
-		if predeclared[n.Name] != predeclaredType {
+		if n.Obj != nil || predeclared[n.Name] != predeclaredType {
 			w.buf = append(w.buf, w.path...)
-			w.buf = append(w.buf, '#')
+			w.buf = append(w.buf, '.')
 		}
 		w.buf = append(w.buf, n.Name...)
 	default:
@@ -234,19 +243,19 @@ func (w *methodWriter) writeNode(n ast.Node) {
 	}
 }
 
-func canonicalMethodDecl(name string, n *ast.FuncType, path string, importPaths map[string]string, buf []byte) (b []byte, err error) {
+func (w *methodWriter) writeCanonicalMethodDecl(name string, n *ast.FuncType) (err error) {
 	defer handleAbort(&err)
-	mw := methodWriter{buf[:0], path, importPaths}
-	mw.writeFunc(name, n)
-	return mw.buf, err
+	w.buf = w.buf[:0]
+	w.writeFunc(name, n)
+	return err
 }
 
-func hash(p []byte, exported, embedded bool) MethodSignature {
+func makeSignature(p []byte, exported, embedded bool) MethodSignature {
 	h := md5.New()
 	h.Write(p)
 	var sig MethodSignature
 	h.Sum(sig[:])
-	sig[0] &^= (allMask - 1)
+	sig[0] &^= allMask
 	if exported {
 		sig[0] |= exportedMask
 	}
@@ -256,47 +265,58 @@ func hash(p []byte, exported, embedded bool) MethodSignature {
 	return sig
 }
 
-func interfaceSignatures(n *ast.InterfaceType, path string, importPaths map[string]string, buf []byte) ([]MethodSignature, []byte, error) {
-	if n.Methods == nil {
-		return nil, buf, nil
-	}
-	var sigs []MethodSignature
-	for _, field := range n.Methods.List {
-		names := field.Names
-		if len(names) == 0 {
-			names = anonymousNames
+func (w *methodWriter) interfaceSignatures(pkg *ast.Package) (map[string][]MethodSignature, error) {
+	result := make(map[string][]MethodSignature)
+	for name, obj := range pkg.Scope.Objects {
+		if !ast.IsExported(name) {
+			continue
 		}
-		for _, name := range names {
-			switch n := field.Type.(type) {
-			case *ast.Ident:
-				switch n.Name {
-				case "error":
-					sigs = append(sigs, hash([]byte(`Error()string`), true, false))
+		spec, ok := obj.Decl.(*ast.TypeSpec)
+		if !ok {
+			continue
+		}
+		itf, ok := spec.Type.(*ast.InterfaceType)
+		if !ok {
+			continue
+		}
+		var sigs []MethodSignature
+		for _, field := range itf.Methods.List {
+			names := field.Names
+			if len(names) == 0 {
+				names = anonymousNames
+			}
+			for _, name := range names {
+				switch n := field.Type.(type) {
+				case *ast.Ident:
+					switch n.Name {
+					case "error":
+						sigs = append(sigs, makeSignature([]byte(`Error()string`), true, false))
+					default:
+						sigs = append(sigs, makeSignature([]byte(w.path+"."+n.Name), ast.IsExported(n.Name), true))
+					}
+				case *ast.SelectorExpr:
+					sigs = append(sigs, makeSignature([]byte(w.nodePath(n.X)+"."+n.Sel.Name), true, true))
+				case *ast.FuncType:
+					if err := w.writeCanonicalMethodDecl(name.Name, n); err != nil {
+						return nil, err
+					}
+					sigs = append(sigs, makeSignature(w.buf, ast.IsExported(name.Name), false))
 				default:
-					sigs = append(sigs, hash([]byte(path+"#"+n.Name), ast.IsExported(n.Name), true))
+					return nil, fmt.Errorf("Unexpected %T in InterfaceType", n)
 				}
-			case *ast.SelectorExpr:
-				x, ok := n.X.(*ast.Ident)
-				if !ok {
-					return nil, nil, fmt.Errorf("Unxpected %T in SelectorExpr", n.X)
-				}
-				s := x.Name
-				if n, ok := importPaths[s]; ok {
-					s = n
-				}
-				s = s + "#" + n.Sel.Name
-				sigs = append(sigs, hash([]byte(s), true, true))
-			case *ast.FuncType:
-				var err error
-				buf, err = canonicalMethodDecl(name.Name, n, path, importPaths, buf)
-				if err != nil {
-					return nil, nil, err
-				}
-				sigs = append(sigs, hash(buf, ast.IsExported(name.Name), false))
-			default:
-				return nil, nil, fmt.Errorf("Unexpected %T in InterfaceType", n)
 			}
 		}
+		sort.Sort(byMethodSignature(sigs))
+		result[name] = sigs
 	}
-	return sigs, buf, nil
+	return result, nil
 }
+
+/*
+func unexportedMethodSignatures(m map[string][]MethodSignature) map[MethodSignature]bool {
+    for _, sigs := range m {
+        for _, sig := range sigs {
+
+        if !
+
+*/

@@ -30,7 +30,6 @@ import (
 	"path"
 	"reflect"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -140,55 +139,14 @@ type builder struct {
 	lineFmt string
 	pdoc    *Package
 
-	srcs        map[string]*source
-	fset        *token.FileSet
-	examples    []*doc.Example
-	fileImports map[string]map[string]string
-	buf         []byte // scratch space for printNode method.
-}
-
-var nameModifiers = []func(string) string{
-	func(p string) string { return strings.TrimPrefix(p, "go") },
-	func(p string) string { return strings.TrimPrefix(p, "go.") },
-	func(p string) string { return strings.TrimSuffix(p, ".go") },
-	func(p string) string { return strings.TrimPrefix(p, "go-") },
-	func(p string) string { return strings.TrimSuffix(p, "-go") },
-	func(p string) string { return p },
-}
-
-func fileImports(pkg *ast.Package) map[string]map[string]string {
-	result := make(map[string]map[string]string)
-	for fname, file := range pkg.Files {
-		importPaths := make(map[string]string)
-		scores := make(map[string]int)
-		for _, i := range file.Imports {
-			importPath, _ := strconv.Unquote(i.Path.Value)
-			if i.Name != nil {
-				importPaths[i.Name.Name] = importPath
-				scores[i.Name.Name] = len(nameModifiers)
-			} else {
-				_, name := path.Split(importPath)
-				for i, f := range nameModifiers {
-					n := f(name)
-					if i >= scores[n] {
-						importPaths[n] = importPath
-						scores[n] = i
-					}
-				}
-			}
-		}
-		for name, importPath := range importPaths {
-			if !IsValidPath(importPath) {
-				delete(importPaths, name)
-			}
-		}
-		result[fname] = importPaths
-	}
-	return result
+	srcs     map[string]*source
+	fset     *token.FileSet
+	examples []*doc.Example
+	buf      []byte // scratch space for printNode method.
 }
 
 func (b *builder) printDecl(decl ast.Node) (d Code) {
-	d, b.buf = printDecl(decl, b.fset, b.fileImports, b.buf)
+	d, b.buf = printDecl(decl, b.fset, b.buf)
 	return
 }
 
@@ -395,12 +353,13 @@ func simpleImporter(imports map[string]*ast.Object, path string) (*ast.Object, e
 		// element of the path.
 		name := path[strings.LastIndex(path, "/")+1:]
 
-		// Trim commonly used prefixes and suffixes that are not legal in a
-		// name.
+		// Trim commonly used prefixes and suffixes containing illegal name
+		// runes.
 		name = strings.TrimSuffix(name, ".go")
 		name = strings.TrimSuffix(name, "-go")
 		name = strings.TrimPrefix(name, "go.")
 		name = strings.TrimPrefix(name, "go-")
+		name = strings.TrimPrefix(name, "biogo.")
 
 		// It's also common for the last element of the path to contain an
 		// extra "go" prefix, but not always. TODO: examine unresolved ids to
@@ -615,8 +574,6 @@ func (b *builder) build(srcs []*source) (*Package, error) {
 	}
 
 	apkg, _ := ast.NewPackage(b.fset, files, simpleImporter, nil)
-
-	b.fileImports = fileImports(apkg)
 
 	// Find examples in the test files.
 

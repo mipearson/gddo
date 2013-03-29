@@ -168,7 +168,7 @@ func (v *annotationVisitor) Visit(n ast.Node) ast.Visitor {
 	return nil
 }
 
-func printDecl(decl ast.Node, fset *token.FileSet, fileImports map[string]map[string]string, buf []byte) (Code, []byte) {
+func printDecl(decl ast.Node, fset *token.FileSet, buf []byte) (Code, []byte) {
 	v := &annotationVisitor{}
 	ast.Walk(v, decl)
 

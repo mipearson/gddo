@@ -71,5 +71,6 @@ func main() {
 	dpkg := doc.New(apkg, bpkg.ImportPath, 0)
 	c := spew.NewDefaultConfig()
 	c.DisableMethods = true
+	c.Dump(apkg)
 	c.Dump(dpkg)
 }

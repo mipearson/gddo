@@ -25,44 +25,42 @@ import (
 // This list of deprecated exports is used to find code that has not been
 // updated for Go 1.
 var deprecatedExports = map[string][]string{
-	"bytes":         {"Add"},
-	"crypto/aes":    {"Cipher"},
-	"crypto/hmac":   {"NewSHA1", "NewSHA256"},
-	"crypto/rand":   {"Seed"},
-	"encoding/json": {"MarshalForHTML"},
-	"encoding/xml":  {"Marshaler", "NewParser", "Parser"},
-	"html":          {"NewTokenizer", "Parse"},
-	"image":         {"Color", "NRGBAColor", "RGBAColor"},
-	"io":            {"Copyn"},
-	"log":           {"Exitf"},
-	"math":          {"Fabs", "Fmax", "Fmod"},
-	"os":            {"Envs", "Error", "Getenverror", "NewError", "Time", "UnixSignal", "Wait"},
-	"reflect":       {"MapValue", "Typeof"},
-	"runtime":       {"UpdateMemStats"},
-	"strconv":       {"Atob", "Atof32", "Atof64", "AtofN", "Atoi64", "Atoui", "Atoui64", "Btoui64", "Ftoa64", "Itoa64", "Uitoa", "Uitoa64"},
-	"time":          {"LocalTime", "Nanoseconds", "NanosecondsToLocalTime", "Seconds", "SecondsToLocalTime", "SecondsToUTC"},
-	"unicode/utf8":  {"NewString"},
+	`"bytes"`:         {"Add"},
+	`"crypto/aes"`:    {"Cipher"},
+	`"crypto/hmac"`:   {"NewSHA1", "NewSHA256"},
+	`"crypto/rand"`:   {"Seed"},
+	`"encoding/json"`: {"MarshalForHTML"},
+	`"encoding/xml"`:  {"Marshaler", "NewParser", "Parser"},
+	`"html"`:          {"NewTokenizer", "Parse"},
+	`"image"`:         {"Color", "NRGBAColor", "RGBAColor"},
+	`"io"`:            {"Copyn"},
+	`"log"`:           {"Exitf"},
+	`"math"`:          {"Fabs", "Fmax", "Fmod"},
+	`"os"`:            {"Envs", "Error", "Getenverror", "NewError", "Time", "UnixSignal", "Wait"},
+	`"reflect"`:       {"MapValue", "Typeof"},
+	`"runtime"`:       {"UpdateMemStats"},
+	`"strconv"`:       {"Atob", "Atof32", "Atof64", "AtofN", "Atoi64", "Atoui", "Atoui64", "Btoui64", "Ftoa64", "Itoa64", "Uitoa", "Uitoa64"},
+	`"time"`:          {"LocalTime", "Nanoseconds", "NanosecondsToLocalTime", "Seconds", "SecondsToLocalTime", "SecondsToUTC"},
+	`"unicode/utf8"`:  {"NewString"},
 }
 
 type vetVisitor struct {
-	importPaths map[string]string
-	errors      map[string]token.Pos
+	errors map[string]token.Pos
 }
 
 func (v *vetVisitor) Visit(n ast.Node) ast.Visitor {
-	sel, ok := n.(*ast.SelectorExpr)
-	if !ok {
-		return v
-	}
-	id, ok := sel.X.(*ast.Ident)
-	if !ok || id.Obj != nil {
-		return v
-	}
-	importPath := v.importPaths[id.Name]
-	for _, name := range deprecatedExports[importPath] {
-		if name == sel.Sel.Name {
-			v.errors[fmt.Sprintf("%q.%s not found", importPath, sel.Sel.Name)] = n.Pos()
-			return v
+	if sel, ok := n.(*ast.SelectorExpr); ok {
+		if x, _ := sel.X.(*ast.Ident); x != nil {
+			if obj := x.Obj; obj != nil && obj.Kind == ast.Pkg {
+				if spec, _ := obj.Decl.(*ast.ImportSpec); spec != nil {
+					for _, name := range deprecatedExports[spec.Path.Value] {
+						if name == sel.Sel.Name {
+							v.errors[fmt.Sprintf("%s.%s not found", spec.Path.Value, sel.Sel.Name)] = n.Pos()
+							return nil
+						}
+					}
+				}
+			}
 		}
 	}
 	return v
@@ -70,7 +68,7 @@ func (v *vetVisitor) Visit(n ast.Node) ast.Visitor {
 
 func (b *builder) vetPackage(pkg *ast.Package) {
 	errors := make(map[string]token.Pos)
-	for fname, file := range pkg.Files {
+	for _, file := range pkg.Files {
 		for _, is := range file.Imports {
 			importPath, _ := strconv.Unquote(is.Path.Value)
 			if !IsValidPath(importPath) &&
@@ -79,10 +77,8 @@ func (b *builder) vetPackage(pkg *ast.Package) {
 				errors[fmt.Sprintf("Unrecognized import path %q", importPath)] = is.Pos()
 			}
 		}
-		if importPaths := b.fileImports[fname]; importPaths != nil {
-			v := vetVisitor{importPaths: importPaths, errors: errors}
-			ast.Walk(&v, file)
-		}
+		v := vetVisitor{errors: errors}
+		ast.Walk(&v, file)
 	}
 	for message, pos := range errors {
 		b.pdoc.Errors = append(b.pdoc.Errors,
