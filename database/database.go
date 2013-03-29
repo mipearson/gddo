@@ -249,7 +249,7 @@ var setNextCrawlScript = redis.NewScript(0, `
     local pkgs = redis.call('SORT', 'index:project:' .. root, 'GET', '#')
 
     for i=1,#pkgs do
-        if nextCrawl < tonumber(redis.call('ZSCORE', crawl, pkgs[i])) then
+        if nextCrawl < tonumber(redis.call('ZSCORE', 'crawl', pkgs[i])) then
             redis.call('ZADD', 'crawl', nextCrawl, pkgs[i])
         end
     end

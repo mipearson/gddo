@@ -86,8 +86,34 @@ func TestPutGet(t *testing.T) {
 		t.Errorf("db.Get(.../foo/bar) returned doc %v, want %v", actualPdoc, pdoc)
 	}
 	if !nextCrawl.Equal(actualCrawl) {
-		t.Errorf("db.get(.../foo/bar) returned crawl %v, want %v", actualCrawl, updated)
+		t.Errorf("db.Get(.../foo/bar) returned crawl %v, want %v", actualCrawl, updated)
 	}
+
+	// Next crawl
+
+	if err := db.SetNextCrawl(pdoc.ProjectRoot, nextCrawl.Add(time.Hour)); err != nil {
+		t.Errorf("db.SetNextCrawl(...) returned %v", err)
+	}
+	_, _, actualCrawl, err = db.Get("github.com/user/repo/foo/bar")
+	if err != nil {
+		t.Fatalf("db.Get(.../foo/bar) returned %v", err)
+	}
+	if !nextCrawl.Equal(actualCrawl) {
+		t.Errorf("db.Get(.../foo/bar) returned crawl %v, want %v", actualCrawl, updated)
+	}
+	nextCrawl = nextCrawl.Add(-time.Hour)
+	if err := db.SetNextCrawl(pdoc.ProjectRoot, nextCrawl); err != nil {
+		t.Errorf("db.SetNextCrawl(...) returned %v", err)
+	}
+	_, _, actualCrawl, err = db.Get("github.com/user/repo/foo/bar")
+	if err != nil {
+		t.Fatalf("db.Get(.../foo/bar) returned %v", err)
+	}
+	if !nextCrawl.Equal(actualCrawl) {
+		t.Errorf("db.Get(.../foo/bar) returned crawl %v, want %v", actualCrawl, updated)
+	}
+
+	// Get "-"
 
 	actualPdoc, _, _, err = db.Get("-")
 	if err != nil {
