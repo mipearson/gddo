@@ -93,7 +93,8 @@ func crawlGithubUpdates(interval time.Duration) {
 		for ownerRepo, t := range updates {
 			if prev[ownerRepo] != t {
 				log.Println("Setting next crawl for", ownerRepo)
-				db.SetNextCrawl("github.com/"+ownerRepo, time.Now())
+				// Wait an hour before crawling to protect against busy repos.
+				db.SetNextCrawl("github.com/"+ownerRepo, time.Now().Add(time.Hour))
 			}
 		}
 		if err := db.PutGob(key, updates); err != nil {

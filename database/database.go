@@ -244,16 +244,18 @@ func (db *Database) SetNextCrawlEtag(projectRoot string, etag string, t time.Tim
 
 var setNextCrawlScript = redis.NewScript(0, `
     local root = ARGV[1]
-    local nextCrawl = ARGV[2]
+    local nextCrawl = tonumber(ARGV[2])
 
     local pkgs = redis.call('SORT', 'index:project:' .. root, 'GET', '#')
 
     for i=1,#pkgs do
-        redis.call('ZADD', 'crawl', nextCrawl, pkgs[i])
+        if nextCrawl < tonumber(redis.call('ZSCORE', crawl, pkgs[i])) then
+            redis.call('ZADD', 'crawl', nextCrawl, pkgs[i])
+        end
     end
 `)
 
-// SetNextCrawl sets the next crawl time for all packages in the project.
+// SetNextCrawl sets the maximum next crawl time for all packages in the project.
 func (db *Database) SetNextCrawl(projectRoot string, t time.Time) error {
 	c := db.Pool.Get()
 	defer c.Close()
