@@ -48,7 +48,7 @@ func importer(imports map[string]*ast.Object, path string) (*ast.Object, error) 
 func main() {
 	flag.Parse()
 	if len(flag.Args()) != 1 {
-		log.Fatal("Usage: go run astprint.go path")
+		log.Fatal("Usage: go run goprint.go path")
 	}
 	bpkg, err := build.Default.Import(flag.Args()[0], ".", 0)
 	if err != nil {
@@ -67,10 +67,11 @@ func main() {
 		}
 		files[fname] = file
 	}
-	apkg, _ := ast.NewPackage(fset, files, importer, nil)
-	dpkg := doc.New(apkg, bpkg.ImportPath, 0)
 	c := spew.NewDefaultConfig()
 	c.DisableMethods = true
+	apkg, _ := ast.NewPackage(fset, files, importer, nil)
 	c.Dump(apkg)
+	ast.Print(fset, apkg)
+	dpkg := doc.New(apkg, bpkg.ImportPath, 0)
 	c.Dump(dpkg)
 }

@@ -28,11 +28,13 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
 	"runtime/debug"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -125,6 +127,11 @@ func isRobot(req *web.Request) bool {
 	return *robot || robotPat.MatchString(req.Header.Get(web.HeaderUserAgent))
 }
 
+func popularLinkReferral(req *web.Request) bool {
+	u := url.URL{Scheme: req.URL.Scheme, Host: req.URL.Host, Path: "/"}
+	return req.Header.Get("Referer") == u.String()
+}
+
 func servePackage(resp web.Response, req *web.Request) error {
 	p := path.Clean(req.URL.Path)
 	if strings.HasPrefix(p, "/pkg/") {
@@ -211,6 +218,16 @@ func servePackage(resp web.Response, req *web.Request) error {
 		}
 		return web.Redirect(resp, req, u, 301, nil)
 	case "":
+		if requestType == humanRequest &&
+			pdoc.Name != "" && // not a directory
+			pdoc.ProjectRoot != "" && // not a standard package
+			!pdoc.IsCmd &&
+			!popularLinkReferral(req) {
+			if err := db.IncrementPopularScore(pdoc.ImportPath); err != nil {
+				log.Print("ERROR db.IncrementPopularScore(%s): %v", pdoc.ImportPath, err)
+			}
+		}
+
 		importerCount, err := db.ImporterCount(path)
 		if err != nil {
 			return err
@@ -273,12 +290,83 @@ func serveIndex(resp web.Response, req *web.Request) error {
 	})
 }
 
+type byPath struct {
+	pkgs []database.Package
+	rank []int
+}
+
+func (bp *byPath) Len() int           { return len(bp.pkgs) }
+func (bp *byPath) Less(i, j int) bool { return bp.pkgs[i].Path < bp.pkgs[j].Path }
+func (bp *byPath) Swap(i, j int) {
+	bp.pkgs[i], bp.pkgs[j] = bp.pkgs[j], bp.pkgs[i]
+	bp.rank[i], bp.rank[j] = bp.rank[j], bp.rank[i]
+}
+
+type byRank struct {
+	pkgs []database.Package
+	rank []int
+}
+
+func (br *byRank) Len() int           { return len(br.pkgs) }
+func (br *byRank) Less(i, j int) bool { return br.rank[i] < br.rank[j] }
+func (br *byRank) Swap(i, j int) {
+	br.pkgs[i], br.pkgs[j] = br.pkgs[j], br.pkgs[i]
+	br.rank[i], br.rank[j] = br.rank[j], br.rank[i]
+}
+
+func popular() ([]database.Package, error) {
+	const n = 25
+
+	pkgs, err := db.Popular(2 * n)
+	if err != nil {
+		return nil, err
+	}
+
+	rank := make([]int, len(pkgs))
+	for i := range pkgs {
+		rank[i] = i
+	}
+
+	sort.Sort(&byPath{pkgs, rank})
+
+	j := 0
+	prev := "."
+	for i, pkg := range pkgs {
+		if strings.HasPrefix(pkg.Path, prev) {
+			if rank[j-1] < rank[i] {
+				rank[j-1] = rank[i]
+			}
+			continue
+		}
+		prev = pkg.Path + "/"
+		pkgs[j] = pkg
+		rank[j] = rank[i]
+		j += 1
+	}
+	pkgs = pkgs[:j]
+
+	sort.Sort(&byRank{pkgs, rank})
+
+	if len(pkgs) > n {
+		pkgs = pkgs[:n]
+	}
+
+	sort.Sort(&byPath{pkgs, rank})
+
+	return pkgs, nil
+}
+
 func serveHome(resp web.Response, req *web.Request) error {
 
 	q := strings.TrimSpace(req.Form.Get("q"))
 	if q == "" {
+		pkgs, err := popular()
+		if err != nil {
+			return err
+		}
+
 		return executeTemplate(resp, "home"+templateExt(req), web.StatusOK,
-			map[string]interface{}{"Popular": getPopularPackages()})
+			map[string]interface{}{"Popular": pkgs})
 	}
 
 	if path, ok := isBrowseURL(q); ok {
@@ -306,6 +394,29 @@ func serveAbout(resp web.Response, req *web.Request) error {
 
 func serveBot(resp web.Response, req *web.Request) error {
 	return executeTemplate(resp, "bot.html", web.StatusOK, nil)
+}
+
+func serveOpenSearchDescription(resp web.Response, req *web.Request) error {
+	return executeTemplate(resp, "opensearch.xml", web.StatusOK, req.URL.Host)
+}
+
+func serveOpenSearchSuggestions(resp web.Response, req *web.Request) error {
+	q := req.Form.Get("q")
+	pkgs, err := db.Suggestions(strings.TrimSpace(q))
+	if err != nil {
+		return err
+	}
+	suggestions := make([]string, len(pkgs))
+	for i, pkg := range pkgs {
+		suggestions[i] = pkg.Path
+	}
+
+	var data = []interface{}{
+		q,
+		suggestions,
+	}
+	w := resp.Start(web.StatusOK, web.Header{web.HeaderContentType: {"application/json; charset=uft-8"}})
+	return json.NewEncoder(w).Encode(data)
 }
 
 func logError(req *web.Request, err error, r interface{}) {
@@ -513,21 +624,17 @@ var (
 	httpAddr        = flag.String("http", ":8080", "Listen for HTTP connections on this address")
 	crawlInterval   = flag.Duration("crawl_interval", 0, "Package updater sleeps for this duration between package updates. Zero disables updates.")
 	githubInterval  = flag.Duration("github_interval", 0, "Github updates crawler sleeps for this duration between fetches. Zero disables the crawler.")
-	popularInterval = flag.Duration("popular_interval", 0, "Google Analytics fetcher sleeps for this duration between updates. Zero disables updates.")
 	secretsPath     = flag.String("secrets", "secrets.json", "Path to file containing application ids and credentials for other services.")
 	secrets         struct {
-		UserAgent             string
-		GithubId              string
-		GithubSecret          string
-		GAAccount             string
-		ServiceAccountSecrets struct {
-			Web struct {
-				ClientEmail string `json:"client_email"`
-				TokenURI    string `json:"token_uri"`
-			}
-		}
-		ServiceAccountPEM      []string
-		serviceAccountPEMBytes []byte
+		// HTTP user agent for outbound requests
+		UserAgent string
+
+		// Github API Credentials
+		GithubId     string
+		GithubSecret string
+
+		// Google Analytics account for tracking codes.
+		GAAccount string
 	}
 )
 
@@ -547,10 +654,6 @@ func readSecrets() error {
 	} else {
 		log.Printf("Github credentials not set in %q.", *secretsPath)
 	}
-	if secrets.GAAccount == "" {
-		log.Printf("Google Analytics account not set in %q", *secretsPath)
-	}
-	secrets.serviceAccountPEMBytes = []byte(strings.Join(secrets.ServiceAccountPEM, "\n"))
 	return nil
 }
 
@@ -584,6 +687,7 @@ func main() {
 		{"notfound.txt", "common.txt"},
 		{"pkg.txt", "common.txt"},
 		{"results.txt", "common.txt"},
+		{"opensearch.xml"},
 	}); err != nil {
 		log.Fatal(err)
 	}
@@ -601,10 +705,6 @@ func main() {
 	db, err = database.New()
 	if err != nil {
 		log.Fatal(err)
-	}
-
-	if *popularInterval > 0 {
-		go updatePopularPackages(*popularInterval)
 	}
 
 	if *crawlInterval > 0 {
@@ -659,6 +759,8 @@ func main() {
 	r.Add("/").GetFunc(serveHome)
 	r.Add("/-/about").GetFunc(serveAbout)
 	r.Add("/-/bot").GetFunc(serveBot)
+	r.Add("/-/opensearch.xml").GetFunc(serveOpenSearchDescription)
+	r.Add("/-/suggest").GetFunc(serveOpenSearchSuggestions)
 	r.Add("/-/go").GetFunc(serveGoIndex)
 	r.Add("/-/index").GetFunc(serveIndex)
 	r.Add("/-/refresh").PostFunc(serveRefresh)

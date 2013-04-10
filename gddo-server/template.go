@@ -51,17 +51,15 @@ var (
 	staticHash  = make(map[string]string)
 )
 
-func staticFileFn(p string) htemp.URL {
+func fileHashFn(p string) (string, error) {
 	staticMutex.RLock()
 	h, ok := staticHash[p]
 	staticMutex.RUnlock()
 
 	if !ok {
-		fp := filepath.Join(*baseDir, "static", filepath.FromSlash(p))
-		b, err := ioutil.ReadFile(fp)
+		b, err := ioutil.ReadFile(filepath.Join(*baseDir, filepath.FromSlash(p)))
 		if err != nil {
-			log.Printf("WARNING could not read static file %s", fp)
-			return htemp.URL("/-/static/" + p)
+			return "", err
 		}
 
 		m := md5.New()
@@ -72,7 +70,15 @@ func staticFileFn(p string) htemp.URL {
 		staticHash[p] = h
 		staticMutex.Unlock()
 	}
+	return h, nil
+}
 
+func staticFileFn(p string) htemp.URL {
+	h, err := fileHashFn("static/" + p)
+	if err != nil {
+		log.Printf("WARNING could not read static file %s, %v", p, err)
+		return htemp.URL("/-/static/" + p)
+	}
 	return htemp.URL("/-/static/" + p + "?v=" + h)
 }
 
@@ -136,22 +142,60 @@ func relativeTime(t time.Time) string {
 }
 
 var (
-	h3Open     = []byte("<h3 ")
-	h4Open     = []byte("<h4 ")
-	h3Close    = []byte("</h3>")
-	h4Close    = []byte("</h4>")
-	rfcRE      = regexp.MustCompile(`RFC\s+(\d{3,4})`)
-	rfcReplace = []byte(`<a href="http://tools.ietf.org/html/rfc$1">$0</a>`)
+	h3Pat      = regexp.MustCompile(`</?h3`)
+	rfcPat     = regexp.MustCompile(`RFC\s+(\d{3,4})`)
+	packagePat = regexp.MustCompile(`\s+package\s+([-a-z0-9]\S+)`)
 )
+
+func replaceAll(src []byte, re *regexp.Regexp, replace func(out, src []byte, m []int) []byte) []byte {
+	var out []byte
+	for len(src) > 0 {
+		m := re.FindSubmatchIndex(src)
+		if m == nil {
+			break
+		}
+		out = append(out, src[:m[0]]...)
+		out = replace(out, src, m)
+		src = src[m[1]:]
+	}
+	if out == nil {
+		return src
+	}
+	return append(out, src...)
+}
 
 // commentFn formats a source code comment as HTML.
 func commentFn(v string) htemp.HTML {
 	var buf bytes.Buffer
 	godoc.ToHTML(&buf, v, nil)
 	p := buf.Bytes()
-	p = bytes.Replace(p, h3Open, h4Open, -1)
-	p = bytes.Replace(p, h3Close, h4Close, -1)
-	p = rfcRE.ReplaceAll(p, rfcReplace)
+	p = replaceAll(p, h3Pat, func(out, src []byte, m []int) []byte {
+		out = append(out, src[m[0]:m[1]-1]...)
+		out = append(out, '4')
+		return out
+	})
+	p = replaceAll(p, rfcPat, func(out, src []byte, m []int) []byte {
+		out = append(out, `<a href="http://tools.ietf.org/html/rfc`...)
+		out = append(out, src[m[2]:m[3]]...)
+		out = append(out, `">`...)
+		out = append(out, src[m[0]:m[1]]...)
+		out = append(out, `</a>`...)
+		return out
+	})
+	p = replaceAll(p, packagePat, func(out, src []byte, m []int) []byte {
+		path := bytes.TrimRight(src[m[2]:m[3]], ".!?:")
+		if !doc.IsValidPath(string(path)) {
+			return append(out, src[m[0]:m[1]]...)
+		}
+		out = append(out, src[m[0]:m[2]]...)
+		out = append(out, `<a href="/`...)
+		out = append(out, path...)
+		out = append(out, `">`...)
+		out = append(out, path...)
+		out = append(out, `</a>`...)
+		out = append(out, src[m[2]+len(path):m[1]]...)
+		return out
+	})
 	return htemp.HTML(p)
 }
 
@@ -166,7 +210,7 @@ func commentTextFn(v string) string {
 
 var period = []byte{'.'}
 
-func codeFn(c doc.Code) htemp.HTML {
+func codeFn(c doc.Code, typ *doc.Type) htemp.HTML {
 	var buf bytes.Buffer
 	last := 0
 	src := []byte(c.Text)
@@ -202,6 +246,10 @@ func codeFn(c doc.Code) htemp.HTML {
 			buf.WriteString(`</span>`)
 		case doc.AnchorAnnotation:
 			buf.WriteString(`<span id="`)
+			if typ != nil {
+				htemp.HTMLEscape(&buf, []byte(typ.Name))
+				buf.WriteByte('.')
+			}
 			htemp.HTMLEscape(&buf, src[a.Pos:a.End])
 			buf.WriteString(`">`)
 			htemp.HTMLEscape(&buf, src[a.Pos:a.End])
@@ -361,6 +409,7 @@ func parseHTMLTemplates(sets [][]string) error {
 			"relativePath":      relativePathFn,
 			"relativeTime":      relativeTime,
 			"staticFile":        staticFileFn,
+			"fileHash":          fileHashFn,
 			"templateName":      func() string { return templateName },
 		})
 		if _, err := t.ParseFiles(joinTemplateDir(*baseDir, set)...); err != nil {

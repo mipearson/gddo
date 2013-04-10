@@ -46,6 +46,7 @@ var indexTests = []struct {
 			"repres",
 			"strconv",
 			"string",
+			"suggest:st",
 			"typ"},
 	},
 	{&doc.Package{
@@ -91,6 +92,7 @@ var indexTests = []struct {
 			"import:net/url", "import:regexp", "import:sort", "import:strconv",
 			"import:strings", "import:sync", "import:time", "interfac",
 			"oau", "project:github.com/user/repo", "rfc", "subset",
+			"suggest:di",
 		},
 	},
 }

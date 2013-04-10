@@ -125,7 +125,7 @@ func getGithubDoc(client *http.Client, match map[string]string, savedEtag string
 	b := &builder{
 		lineFmt: "#L%d",
 		pdoc: &Package{
-			ImportPath:  match["importPath"],
+			ImportPath:  match["originalImportPath"],
 			ProjectRoot: expand("github.com/{owner}/{repo}", match),
 			ProjectName: match["repo"],
 			ProjectURL:  expand("https://github.com/{owner}/{repo}", match),

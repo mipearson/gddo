@@ -18,6 +18,7 @@ package doc
 import (
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"path"
@@ -170,7 +171,7 @@ metaScan:
 }
 
 // getDynamic gets a document from a service that is not statically known.
-func getDynamic(client *http.Client, importPath string, etag string) (*Package, error) {
+func getDynamic(client *http.Client, importPath, etag string) (*Package, error) {
 	match, err := fetchMeta(client, importPath)
 	if err != nil {
 		return nil, err
@@ -186,7 +187,7 @@ func getDynamic(client *http.Client, importPath string, etag string) (*Package, 
 		}
 	}
 
-	pdoc, err := getStatic(client, expand("{repo}{dir}", match), etag)
+	pdoc, err := getStatic(client, expand("{repo}{dir}", match), importPath, etag)
 	if err == errNoMatch {
 		pdoc, err = getVCSDoc(client, match, etag)
 	}
@@ -195,7 +196,6 @@ func getDynamic(client *http.Client, importPath string, etag string) (*Package, 
 	}
 
 	if pdoc != nil {
-		pdoc.ImportPath = importPath
 		pdoc.ProjectRoot = match["projectRoot"]
 		pdoc.ProjectName = match["projectName"]
 		pdoc.ProjectURL = match["projectURL"]
@@ -206,7 +206,7 @@ func getDynamic(client *http.Client, importPath string, etag string) (*Package, 
 
 // getStatic gets a document from a statically known service. getStatic
 // returns errNoMatch if the import path is not recognized.
-func getStatic(client *http.Client, importPath string, etag string) (*Package, error) {
+func getStatic(client *http.Client, importPath, originalImportPath, etag string) (*Package, error) {
 	for _, s := range services {
 		if s.get == nil || !strings.HasPrefix(importPath, s.prefix) {
 			continue
@@ -218,7 +218,7 @@ func getStatic(client *http.Client, importPath string, etag string) (*Package, e
 			}
 			continue
 		}
-		match := map[string]string{"importPath": importPath}
+		match := map[string]string{"importPath": importPath, "originalImportPath": originalImportPath}
 		for i, n := range s.pattern.SubexpNames() {
 			if n != "" {
 				match[n] = m[i]
@@ -243,7 +243,7 @@ func Get(client *http.Client, importPath string, etag string) (pdoc *Package, er
 	case IsGoRepoPath(importPath):
 		pdoc, err = getStandardDoc(client, importPath, etag)
 	case IsValidRemotePath(importPath):
-		pdoc, err = getStatic(client, importPath, etag)
+		pdoc, err = getStatic(client, importPath, importPath, etag)
 		if err == errNoMatch {
 			pdoc, err = getDynamic(client, importPath, etag)
 		}
@@ -257,6 +257,9 @@ func Get(client *http.Client, importPath string, etag string) (pdoc *Package, er
 
 	if pdoc != nil {
 		pdoc.Etag = versionPrefix + pdoc.Etag
+		if pdoc.ImportPath != importPath {
+			return nil, fmt.Errorf("Get: pdoc.ImportPath = %q, want %q", pdoc.ImportPath, importPath)
+		}
 	}
 
 	return pdoc, err

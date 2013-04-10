@@ -73,7 +73,7 @@ func getGoogleDoc(client *http.Client, match map[string]string, savedEtag string
 	b := &builder{
 		lineFmt: "#%d",
 		pdoc: &Package{
-			ImportPath:  match["importPath"],
+			ImportPath:  match["originalImportPath"],
 			ProjectRoot: expand("code.google.com/p/{repo}{dot}{subrepo}", match),
 			ProjectName: expand("{repo}{dot}{subrepo}", match),
 			ProjectURL:  expand("https://code.google.com/p/{repo}/", match),

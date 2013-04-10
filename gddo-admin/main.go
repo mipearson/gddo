@@ -39,6 +39,7 @@ var commands = []*command{
 	reindexCommand,
 	pruneCommand,
 	deleteCommand,
+	popularCommand,
 }
 
 func printUsage() {

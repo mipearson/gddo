@@ -29,6 +29,8 @@
 // index:project:<root> set: packages in project with root
 // crawl zset: package id, Unix time for next crawl
 // block set: packages to block
+// popular zset: package id, score
+// popular:0 string: scaled base time for popular scores
 
 // Package database manages storage for GoPkgDoc.
 package database
@@ -39,8 +41,10 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"net/url"
 	"os"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -427,6 +431,7 @@ var deleteScript = redis.NewScript(0, `
     end
 
     redis.call('ZREM', 'crawl', id)
+    redis.call('ZREM', 'popular', id)
     redis.call('DEL', 'pkg:' .. id)
     return redis.call('DEL', 'id:' .. path)
 `)
@@ -483,6 +488,37 @@ func (db *Database) Index() ([]Package, error) {
 
 func (db *Database) Project(projectRoot string) ([]Package, error) {
 	return db.getPackages("index:project:"+normalizeProjectRoot(projectRoot), true)
+}
+
+func (db *Database) Suggestions(query string) ([]Package, error) {
+	c := db.Pool.Get()
+	defer c.Close()
+	reply, err := c.Do("SORT", "index:suggest:"+suggestPrefix(query),
+		"DESC", "BY", "pkg:*->rank",
+		"GET", "pkg:*->path", "GET", "pkg:*->synopsis", "GET", "pkg:*->kind")
+	if err != nil {
+		return nil, err
+	}
+	pkgs, err := packages(reply, false)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]Package, 0, 20)
+	var j = 0
+	for i := range pkgs {
+		base := path.Base(pkgs[i].Path)
+		if base == query {
+			// Copy exact matches to result.
+			result = append(result, pkgs[i])
+		} else if strings.HasPrefix(base, query) {
+			// Move prefix matches down.
+			pkgs[j] = pkgs[i]
+			j += 1
+		}
+	}
+	// append prefix matches to exact matches
+	result = append(result, pkgs[:j]...)
+	return result, nil
 }
 
 func (db *Database) AllPackages() ([]Package, error) {
@@ -773,4 +809,65 @@ func (db *Database) GetGob(key string, value interface{}) error {
 		return err
 	}
 	return gob.NewDecoder(bytes.NewReader(p)).Decode(value)
+}
+
+var incrementPopularScore = redis.NewScript(0, `
+    local path = ARGV[1]
+    local n = ARGV[2]
+    local t = ARGV[3]
+
+    local id = redis.call('GET', 'id:' .. path)
+    if not id then
+        return
+    end
+
+    local t0 = redis.call('GET', 'popular:0') or '0'
+    local f = math.exp(tonumber(t) - tonumber(t0))
+    if f > 100 then
+        redis.call('ZREMRANGEBYSCORE', 'popular', '-inf', 0.01 * f)
+        redis.call('ZUNIONSTORE', 'popular', 1, 'popular', 'WEIGHTS', 1.0 / f)
+        redis.call('SET', 'popular:0', t)
+        f = 1
+    end
+    return redis.call('ZINCRBY', 'popular', tonumber(n) * f, id)
+`)
+
+const popularHalfLife = time.Hour * 24 * 7
+
+func scaledTime(t time.Time) float64 {
+	const lambda = math.Ln2 / float64(popularHalfLife)
+	return lambda * float64(t.Sub(time.Unix(1257894000, 0)))
+}
+
+func (db *Database) IncrementPopularScore(path string) error {
+	// nt = n0 * math.Exp(-lambda * t)
+	// lambda = math.Ln2 / thalf
+	c := db.Pool.Get()
+	defer c.Close()
+	_, err := incrementPopularScore.Do(c, path, 1, scaledTime(time.Now()))
+	return err
+}
+
+var popularScript = redis.NewScript(0, `
+    local stop = ARGV[1]
+    local ids = redis.call('ZREVRANGE', 'popular', '0', stop)
+    local result = {}
+    for i=1,#ids do
+        local values = redis.call('HMGET', 'pkg:' .. ids[i], 'path', 'synopsis', 'kind')
+        result[#result+1] = values[1]
+        result[#result+1] = values[2]
+        result[#result+1] = values[3]
+    end
+    return result
+`)
+
+func (db *Database) Popular(count int) ([]Package, error) {
+	c := db.Pool.Get()
+	defer c.Close()
+	reply, err := popularScript.Do(c, count-1)
+	if err != nil {
+		return nil, err
+	}
+	pkgs, err := packages(reply, false)
+	return pkgs, err
 }

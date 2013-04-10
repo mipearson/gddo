@@ -78,12 +78,7 @@ func crawlDoc(source string, path string, pdoc *doc.Package, hasSubdirs bool, ne
 	} else {
 		var pdocNew *doc.Package
 		pdocNew, err = doc.Get(httpClient, path, etag)
-
 		message = append(message, "fetch:", int64(time.Since(now)/time.Millisecond))
-
-		// For timeout logic in client.go to work, we cannot leave connections idling. This is ugly.
-		httpTransport.CloseIdleConnections()
-
 		if err != doc.ErrNotModified {
 			pdoc = pdocNew
 		}

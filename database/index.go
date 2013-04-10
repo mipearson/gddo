@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/garyburd/gopkgdoc/doc"
 )
@@ -36,6 +37,19 @@ func normalizeProjectRoot(projectRoot string) string {
 		return "go"
 	}
 	return projectRoot
+}
+
+func suggestPrefix(s string) string {
+	var i, n int
+	for n < len(s) {
+		_, m := utf8.DecodeRuneInString(s[n:])
+		n += m
+		i += 1
+		if i == 2 {
+			return s[:n]
+		}
+	}
+	return ""
 }
 
 var httpPat = regexp.MustCompile(`https?://\S+`)
@@ -82,6 +96,10 @@ func documentTerms(pdoc *doc.Package, rank float64) []string {
 				terms[stem(s)] = true
 			}
 		}
+
+		if s := suggestPrefix(path.Base(pdoc.ImportPath)); s != "" {
+			terms["suggest:"+s] = true
+		}
 	}
 
 	result := make([]string, 0, len(terms))
@@ -126,7 +144,7 @@ func documentRank(pdoc *doc.Package) float64 {
 	}
 
 	if strings.Index(pdoc.ImportPath[len(pdoc.ProjectRoot):], "/src/") > 0 {
-		r *= 0.95
+		r *= 0.85
 	}
 
 	if path.Base(pdoc.ImportPath) != pdoc.Name {

@@ -78,10 +78,21 @@ var predeclared = map[string]int{
 type AnnotationKind int16
 
 const (
+	// Link to export in package specifed by ImportPath with fragment
+	// Text[strings.LastIndex(Text[Pos:End], ".")+1:End].
 	ExportLinkAnnotation AnnotationKind = iota
+
+	// Anchor with name specified by Text[Pos:End] or typeName + "." +
+	// Text[Pos:End] for type declarations.
 	AnchorAnnotation
+
+	// Comment.
 	CommentAnnotation
+
+	// Link to package specified by ImportPath.
 	PackageLinkAnnotation
+
+	// Link to builtin entity with name Text[Pos:End].
 	BuiltinAnnotation
 )
 
@@ -113,7 +124,23 @@ func (v *annotationVisitor) Visit(n ast.Node) ast.Visitor {
 	switch n := n.(type) {
 	case *ast.TypeSpec:
 		v.ignoreName()
-		ast.Walk(v, n.Type)
+		var list *ast.FieldList
+		switch n := n.Type.(type) {
+		case *ast.InterfaceType:
+			list = n.Methods
+		case *ast.StructType:
+			list = n.Fields
+		}
+		if list == nil {
+			ast.Walk(v, n.Type)
+		} else {
+			for _, n := range list.List {
+				for _ = range n.Names {
+					v.add(AnchorAnnotation, "")
+				}
+				ast.Walk(v, n.Type)
+			}
+		}
 	case *ast.FuncDecl:
 		if n.Recv != nil {
 			ast.Walk(v, n.Recv)
@@ -171,7 +198,6 @@ func (v *annotationVisitor) Visit(n ast.Node) ast.Visitor {
 func printDecl(decl ast.Node, fset *token.FileSet, buf []byte) (Code, []byte) {
 	v := &annotationVisitor{}
 	ast.Walk(v, decl)
-
 	buf = buf[:0]
 	err := (&printer.Config{Mode: printer.UseSpaces, Tabwidth: 4}).Fprint(sliceWriter{&buf}, fset, decl)
 	if err != nil {

@@ -12,19 +12,20 @@
 // License for the specific language governing permissions and limitations
 // under the License.
 
-package database_test
+package database
 
 import (
+	"math"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
-	"github.com/garyburd/gopkgdoc/database"
 	"github.com/garyburd/gopkgdoc/doc"
 	"github.com/garyburd/redigo/redis"
 )
 
-func newDB(t *testing.T) *database.Database {
+func newDB(t *testing.T) *Database {
 	p := redis.NewPool(func() (redis.Conn, error) {
 		c, err := redis.DialTimeout("tcp", ":6379", 0, 1*time.Second, 1*time.Second)
 		if err != nil {
@@ -44,10 +45,10 @@ func newDB(t *testing.T) *database.Database {
 	if n != 0 || err != nil {
 		t.Fatalf("DBSIZE returned %d, %v", n, err)
 	}
-	return &database.Database{Pool: p}
+	return &Database{Pool: p}
 }
 
-func closeDB(db *database.Database) {
+func closeDB(db *Database) {
 	c := db.Pool.Get()
 	c.Do("FLUSHDB")
 	c.Close()
@@ -87,6 +88,12 @@ func TestPutGet(t *testing.T) {
 	}
 	if !nextCrawl.Equal(actualCrawl) {
 		t.Errorf("db.Get(.../foo/bar) returned crawl %v, want %v", actualCrawl, updated)
+	}
+
+	// Popular
+
+	if err := db.IncrementPopularScore(pdoc.ImportPath); err != nil {
+		t.Errorf("db.IncrementPopularScore() returned %v", err)
 	}
 
 	// Next crawl
@@ -130,7 +137,7 @@ func TestPutGet(t *testing.T) {
 	if actualPdoc != nil {
 		t.Errorf("db.Get(.../foo) returned doc %v, want %v", actualPdoc, nil)
 	}
-	expectedSubdirs := []database.Package{{Path: "github.com/user/repo/foo/bar", Synopsis: "hello"}}
+	expectedSubdirs := []Package{{Path: "github.com/user/repo/foo/bar", Synopsis: "hello"}}
 	if !reflect.DeepEqual(actualSubdirs, expectedSubdirs) {
 		t.Errorf("db.Get(.../foo) returned subdirs %v, want %v", actualSubdirs, expectedSubdirs)
 	}
@@ -138,7 +145,7 @@ func TestPutGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db.Importers() retunred error %v", err)
 	}
-	expectedImporters := []database.Package{{"github.com/user/repo/foo/bar", "hello"}}
+	expectedImporters := []Package{{"github.com/user/repo/foo/bar", "hello"}}
 	if !reflect.DeepEqual(actualImporters, expectedImporters) {
 		t.Errorf("db.Importers() = %v, want %v", actualImporters, expectedImporters)
 	}
@@ -151,7 +158,7 @@ func TestPutGet(t *testing.T) {
 			actualImports[i].Synopsis = ""
 		}
 	}
-	expectedImports := []database.Package{{"C", ""}, {"errors", ""}, {"github.com/user/repo/foo/bar", "hello"}}
+	expectedImports := []Package{{"C", ""}, {"errors", ""}, {"github.com/user/repo/foo/bar", "hello"}}
 	if !reflect.DeepEqual(actualImports, expectedImports) {
 		t.Errorf("db.Imports() = %v, want %v", actualImports, expectedImports)
 	}
@@ -188,7 +195,48 @@ func TestPutGet(t *testing.T) {
 	c.Send("DEL", "maxQueryId")
 	c.Send("DEL", "maxPackageId")
 	c.Send("DEL", "block")
+	c.Send("DEL", "popular:0")
 	if n, err := c.Do("DBSIZE"); n != int64(0) || err != nil {
 		t.Errorf("c.Do(DBSIZE) = %d, %v, want 0, nil", n, err)
+	}
+}
+
+func TestPopular(t *testing.T) {
+	db := newDB(t)
+	defer closeDB(db)
+	c := db.Pool.Get()
+	defer c.Close()
+
+	// Add scores for packages. On each iteration, add half-life to time and
+	// divide the score by two. All packages should have the same score.
+
+	now := time.Now()
+	score := float64(4048)
+	for id := 12; id >= 0; id-- {
+		path := "github.com/user/repo/p" + strconv.Itoa(id)
+		c.Do("SET", "id:"+path, id)
+		_, err := incrementPopularScore.Do(c, path, score, scaledTime(now))
+		if err != nil {
+			t.Fatal(err)
+		}
+		now = now.Add(popularHalfLife)
+		score /= 2
+	}
+
+	values, _ := redis.Values(c.Do("ZRANGE", "popular", "0", "100000", "WITHSCORES"))
+	if len(values) != 26 {
+		t.Errorf("Expected 26 values, got %d", len(values))
+	}
+
+	// Check for equal scores.
+	score, err := redis.Float64(values[1], nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 3; i < len(values); i += 2 {
+		s, _ := redis.Float64(values[i], nil)
+		if math.Abs(score-s)/score > 0.0001 {
+			t.Errorf("Bad score, score[1]=%g, score[%d]=%g", score, i, s)
+		}
 	}
 }

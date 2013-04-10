@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"regexp"
 	"strconv"
 	"time"
@@ -30,7 +31,7 @@ var githubUpdatedPat = regexp.MustCompile(`datetime="([^"]+)"`)
 func readGithubUpdates() (map[string]string, error) {
 	updates := make(map[string]string)
 	for i := 0; i < 2; i++ {
-		resp, err := httpClient.Get("https://github.com/languages/Go/updated?page=" + strconv.Itoa(i))
+		resp, err := http.Get("https://github.com/languages/Go/updated?page=" + strconv.Itoa(i+1))
 		if err != nil {
 			return nil, err
 		}
@@ -71,7 +72,6 @@ func crawlGithubUpdates(interval time.Duration) {
 	const key = "ghupdates"
 	sleep := false
 	for {
-		httpTransport.CloseIdleConnections()
 		if sleep {
 			time.Sleep(interval)
 		}
@@ -92,13 +92,13 @@ func crawlGithubUpdates(interval time.Duration) {
 		}
 		for ownerRepo, t := range updates {
 			if prev[ownerRepo] != t {
-				nextCrawl := time.Now()
+				d := time.Duration(0)
 				if prev[ownerRepo] != "" {
 					// Delay crawl if repo was updated recently.
-					nextCrawl.Add(time.Hour)
+					d = time.Hour
 				}
-				log.Printf("Set next crawl for %s to %d seconds from now", ownerRepo, -time.Since(nextCrawl)/time.Second)
-				if err := db.SetNextCrawl("github.com/"+ownerRepo, nextCrawl); err != nil {
+				log.Printf("Set next crawl for %s to %v from now", ownerRepo, d)
+				if err := db.SetNextCrawl("github.com/"+ownerRepo, time.Now().Add(d)); err != nil {
 					log.Println("ERROR set next crawl:", err)
 				}
 			}

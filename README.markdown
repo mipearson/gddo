@@ -1,10 +1,15 @@
 This project is the source for http://godoc.org/
 
+The code in this project is designed to be used by godoc.org. Send mail to
+info@godoc.org if you want to discuss other uses of the code.
+
 Feedback
 --------
 
 Send ideas and questions to info@godoc.org. Request features and report bugs
-using the [Github Issue Tracker](https://github.com/garyburd/gopkgdoc/issues/new).
+using the [Github Issue
+Tracker](https://github.com/garyburd/gopkgdoc/issues/new). 
+
 
 Contributing
 ------------
@@ -13,7 +18,7 @@ Contributions are welcome.
 
 Before writing code, send mail to info@godoc.org to discuss what you plan to
 do. This gives the project manager a chance to validate the design, avoid
-duplication of effort and esnure that the changes fit the goals of the project.
+duplication of effort and ensure that the changes fit the goals of the project.
 Do not start the discussion with a pull request. 
 
 Development Environment Setup

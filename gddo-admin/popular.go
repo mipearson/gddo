@@ -15,20 +15,27 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 
 	"github.com/garyburd/gopkgdoc/database"
 )
 
-var deleteCommand = &command{
-	name:  "delete",
-	run:   del,
-	usage: "delete path",
+var (
+	popularCommand = &command{
+		name:  "popular",
+		usage: "delete count",
+	}
+	popularCount = popularCommand.flag.Int("n", 25, "Count.")
+)
+
+func init() {
+	popularCommand.run = popular
 }
 
-func del(c *command) {
-	if len(c.flag.Args()) != 1 {
+func popular(c *command) {
+	if len(c.flag.Args()) != 0 {
 		c.printUsage()
 		os.Exit(1)
 	}
@@ -36,7 +43,11 @@ func del(c *command) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if err := db.Delete(c.flag.Args()[0]); err != nil {
+	pkgs, err := db.Popular(*popularCount)
+	if err != nil {
 		log.Fatal(err)
+	}
+	for _, pkg := range pkgs {
+		fmt.Println(pkg.Path)
 	}
 }

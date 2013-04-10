@@ -36,27 +36,27 @@
 {{end}}
 </ul>{{end}}
 
-{{if .Consts}}<h3 id="_constants">Constants</h3>{{range .Consts}}<pre class="pre-x-scrollable">{{.Decl|code}}</pre>{{.Doc|comment}}{{end}}{{end}}
-{{if .Vars}}<h3 id="_variables">Variables</h3>{{range .Vars}}<pre class="pre-x-scrollable">{{.Decl|code}}</pre>{{.Doc|comment}}{{end}}{{end}}
+{{if .Consts}}<h3 id="_constants">Constants</h3>{{range .Consts}}<pre class="pre-x-scrollable">{{code .Decl nil}}</pre>{{.Doc|comment}}{{end}}{{end}}
+{{if .Vars}}<h3 id="_variables">Variables</h3>{{range .Vars}}<pre class="pre-x-scrollable">{{code .Decl nil}}</pre>{{.Doc|comment}}{{end}}{{end}}
 
 {{range .Funcs}}<h3 id="{{.Name}}">func {{template "SourceLink" .}}</h3>
-<pre>{{.Decl|code}}</pre>{{.Doc|comment}}
+<pre>{{code .Decl nil}}</pre>{{.Doc|comment}}
 {{template "Examples" map "object" . "name" .Name}}
 {{end}}
 
 {{range $t := .Types}}<h3 id="{{.Name}}">type {{template "SourceLink" .}}</h3>
-<pre class="pre-x-scrollable">{{.Decl|code}}</pre>{{.Doc|comment}}
-{{range .Consts}}<pre class="pre-x-scrollable">{{.Decl|code}}</pre>{{.Doc|comment}}{{end}}
-{{range .Vars}}<pre class="pre-x-scrollable">{{.Decl|code}}</pre>{{.Doc|comment}}{{end}}
+<pre class="pre-x-scrollable">{{code .Decl $t}}</pre>{{.Doc|comment}}
+{{range .Consts}}<pre class="pre-x-scrollable">{{code .Decl nil}}</pre>{{.Doc|comment}}{{end}}
+{{range .Vars}}<pre class="pre-x-scrollable">{{code .Decl nil}}</pre>{{.Doc|comment}}{{end}}
 {{template "Examples" map "object" . "name" .Name}}
 
 {{range .Funcs}}<h4 id="{{.Name}}">func {{template "SourceLink" . }}</h4>
-<pre>{{.Decl|code}}</pre>{{.Doc|comment}}
+<pre>{{code .Decl nil}}</pre>{{.Doc|comment}}
 {{template "Examples" map "object" . "name" .Name}}
 {{end}}
 
 {{range .Methods}}<h4 id="{{$t.Name}}.{{.Name}}">func ({{.Recv}}) {{template "SourceLink" .}}</h4>
-<pre>{{.Decl|code}}</pre>{{.Doc|comment}}
+<pre>{{code .Decl nil}}</pre>{{.Doc|comment}}
 {{template "Examples" map "object" . "name" (printf "%s_%s" $t.Name .Name)}}
 {{end}}
 
@@ -78,7 +78,7 @@
   <div id="__example_{{$.name}}{{with .Name}}-{{.}}{{end}}" class="accordion-body collapse"><div class="accordion-inner">
     {{with .Doc}}<p>{{.|comment}}{{end}}
     <p>Code:{{if .Play}}<span class="pull-right"><a href="?view=play&example={{$.name}}{{with .Name}}-{{.}}{{end}}">play</a>&nbsp;</span>{{end}}
-    <pre class="pre-x-scrollable">{{.Code|code}}</pre>
+    <pre class="pre-x-scrollable">{{code .Code nil}}</pre>
     {{with .Output}}<p>Output:<pre class="pre-x-scrollable">{{.}}</pre>{{end}}
   </div></div>
 </div>

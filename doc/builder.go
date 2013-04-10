@@ -28,7 +28,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
-	"reflect"
 	"regexp"
 	"strings"
 	"time"
@@ -315,17 +314,15 @@ func (b *builder) funcs(fdocs []*doc.Func) []*Func {
 }
 
 type Type struct {
-	Doc        string
-	Name       string
-	Decl       Code
-	URL        string
-	Kind       reflect.Kind
-	Consts     []*Value
-	Vars       []*Value
-	Funcs      []*Func
-	Methods    []*Func
-	Examples   []*Example
-	Signatures []MethodSignature
+	Doc      string
+	Name     string
+	Decl     Code
+	URL      string
+	Consts   []*Value
+	Vars     []*Value
+	Funcs    []*Func
+	Methods  []*Func
+	Examples []*Example
 }
 
 func (b *builder) types(tdocs []*doc.Type) []*Type {
@@ -392,7 +389,7 @@ func (s *source) IsDir() bool        { return false }
 func (s *source) Sys() interface{}   { return nil }
 
 func (b *builder) readDir(dir string) ([]os.FileInfo, error) {
-	if dir != b.pdoc.ImportPath {
+	if dir != "/" {
 		panic("unexpected")
 	}
 	fis := make([]os.FileInfo, 0, len(b.srcs))
@@ -403,10 +400,8 @@ func (b *builder) readDir(dir string) ([]os.FileInfo, error) {
 }
 
 func (b *builder) openFile(path string) (io.ReadCloser, error) {
-	if strings.HasPrefix(path, b.pdoc.ImportPath+"/") {
-		if src, ok := b.srcs[path[len(b.pdoc.ImportPath)+1:]]; ok {
-			return ioutil.NopCloser(bytes.NewReader(src.data)), nil
-		}
+	if src, ok := b.srcs[path[1:]]; ok {
+		return ioutil.NopCloser(bytes.NewReader(src.data)), nil
 	}
 	panic("unexpected")
 }
@@ -485,6 +480,8 @@ type Package struct {
 	Imports      []string
 	TestImports  []string
 	XTestImports []string
+
+	MethodSets map[string]*MethodSet
 }
 
 var goEnvs = []struct{ GOOS, GOARCH string }{
@@ -523,6 +520,7 @@ func (b *builder) build(srcs []*source) (*Package, error) {
 		GOOS:          "linux",
 		GOARCH:        "amd64",
 		CgoEnabled:    true,
+		ReleaseTags:   build.Default.ReleaseTags,
 		JoinPath:      path.Join,
 		IsAbsPath:     path.IsAbs,
 		SplitPathList: func(list string) []string { return strings.Split(list, ":") },
@@ -539,7 +537,7 @@ func (b *builder) build(srcs []*source) (*Package, error) {
 	for _, env := range goEnvs {
 		ctxt.GOOS = env.GOOS
 		ctxt.GOARCH = env.GOARCH
-		bpkg, err = ctxt.ImportDir(b.pdoc.ImportPath, 0)
+		bpkg, err = ctxt.ImportDir("/", 0)
 		if _, ok := err.(*build.NoGoError); !ok {
 			break
 		}
@@ -589,16 +587,17 @@ func (b *builder) build(srcs []*source) (*Package, error) {
 	}
 
 	b.vetPackage(apkg)
+	b.pdoc.MethodSets, err = methodSets(b.fset, apkg, b.pdoc.ImportPath)
 
 	mode := doc.Mode(0)
 	if b.pdoc.ImportPath == "builtin" {
 		mode |= doc.AllDecls
 	}
 
-	pdoc := doc.New(apkg, b.pdoc.ImportPath, mode)
+	dpkg := doc.New(apkg, b.pdoc.ImportPath, mode)
 
-	b.pdoc.Name = pdoc.Name
-	b.pdoc.Doc = strings.TrimRight(pdoc.Doc, " \t\n\r")
+	b.pdoc.Name = dpkg.Name
+	b.pdoc.Doc = strings.TrimRight(dpkg.Doc, " \t\n\r")
 	b.pdoc.Synopsis = synopsis(b.pdoc.Doc)
 
 	b.pdoc.Examples = b.getExamples("")
@@ -606,11 +605,11 @@ func (b *builder) build(srcs []*source) (*Package, error) {
 	b.pdoc.GOOS = ctxt.GOOS
 	b.pdoc.GOARCH = ctxt.GOARCH
 
-	b.pdoc.Consts = b.values(pdoc.Consts)
-	b.pdoc.Funcs = b.funcs(pdoc.Funcs)
-	b.pdoc.Types = b.types(pdoc.Types)
-	b.pdoc.Vars = b.values(pdoc.Vars)
-	b.pdoc.Notes = b.notes(pdoc.Notes)
+	b.pdoc.Consts = b.values(dpkg.Consts)
+	b.pdoc.Funcs = b.funcs(dpkg.Funcs)
+	b.pdoc.Types = b.types(dpkg.Types)
+	b.pdoc.Vars = b.values(dpkg.Vars)
+	b.pdoc.Notes = b.notes(dpkg.Notes)
 
 	b.pdoc.Imports = bpkg.Imports
 	b.pdoc.TestImports = bpkg.TestImports

@@ -126,7 +126,7 @@ func getLaunchpadDoc(client *http.Client, match map[string]string, savedEtag str
 	b := &builder{
 		lineFmt: "#L%d",
 		pdoc: &Package{
-			ImportPath:  match["importPath"],
+			ImportPath:  match["originalImportPath"],
 			ProjectRoot: expand("launchpad.net/{repo}", match),
 			ProjectName: match["repo"],
 			ProjectURL:  expand("https://launchpad.net/{repo}/", match),
