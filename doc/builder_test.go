@@ -15,6 +15,7 @@
 package doc
 
 import (
+	"go/ast"
 	"testing"
 )
 
@@ -69,5 +70,28 @@ func TestReferences(t *testing.T) {
 	}
 	for r := range references {
 		t.Errorf("extra %s", r)
+	}
+}
+
+var simpleImporterTests = []string{
+	"code.google.com/p/biogo.foobar",
+	"code.google.com/p/google-api-go-client/foobar/v3",
+	"git.gitorious.org/go-pkg/foobar.git",
+	"github.com/quux/go-foobar",
+	"github.com/quux/go.foobar",
+	"github.com/quux/foobar.go",
+	"github.com/quux/foobar-go",
+	"github.com/quux/foobar",
+	"foobar",
+	"quux/foobar",
+}
+
+func TestSimpleImporter(t *testing.T) {
+	for _, path := range simpleImporterTests {
+		m := make(map[string]*ast.Object)
+		obj, _ := simpleImporter(m, path)
+		if obj.Name != "foobar" {
+			t.Errorf("simpleImporter(%q) = %q, want %q", path, obj.Name, "foobar")
+		}
 	}
 }

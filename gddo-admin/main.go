@@ -40,6 +40,8 @@ var commands = []*command{
 	pruneCommand,
 	deleteCommand,
 	popularCommand,
+	dangleCommand,
+	crawlCommand,
 }
 
 func printUsage() {

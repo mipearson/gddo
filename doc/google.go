@@ -70,13 +70,20 @@ func getGoogleDoc(client *http.Client, match map[string]string, savedEtag string
 		return nil, err
 	}
 
+	var projectURL string
+	if match["subrepo"] == "" {
+		projectURL = expand("https://code.google.com/p/{repo}/", match)
+	} else {
+		projectURL = expand("https://code.google.com/p/{repo}/source/browse?repo={subrepo}", match)
+	}
+
 	b := &builder{
 		lineFmt: "#%d",
 		pdoc: &Package{
 			ImportPath:  match["originalImportPath"],
 			ProjectRoot: expand("code.google.com/p/{repo}{dot}{subrepo}", match),
 			ProjectName: expand("{repo}{dot}{subrepo}", match),
-			ProjectURL:  expand("https://code.google.com/p/{repo}/", match),
+			ProjectURL:  projectURL,
 			BrowseURL:   expand("http://code.google.com/p/{repo}/source/browse{dir}/{query}", match),
 			Etag:        etag,
 			VCS:         match["vcs"],

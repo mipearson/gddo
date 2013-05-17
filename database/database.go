@@ -21,16 +21,18 @@
 //      path: import path
 //      synopsis: synopsis
 //      gob: snappy compressed gob encoded doc.Package
-//      rank: document search rank
+//      score: document search score
 //      etag:
 //      kind: p=package, c=command, d=directory with no go files
 // index:<term> set: package ids for given search term
 // index:import:<path> set: packages with import path
 // index:project:<root> set: packages in project with root
-// crawl zset: package id, Unix time for next crawl
+// nextCrawl zset: package id, Unix time for next crawl
 // block set: packages to block
 // popular zset: package id, score
 // popular:0 string: scaled base time for popular scores
+// newCrawl set: new paths to crawl
+// badCrawl set: paths that returned error when crawling.
 
 // Package database manages storage for GoPkgDoc.
 package database
@@ -44,7 +46,6 @@ import (
 	"math"
 	"net/url"
 	"os"
-	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -137,7 +138,7 @@ func (db *Database) Exists(path string) (bool, error) {
 var putScript = redis.NewScript(0, `
     local path = ARGV[1]
     local synopsis = ARGV[2]
-    local rank = ARGV[3]
+    local score = ARGV[3]
     local gob = ARGV[4]
     local terms = ARGV[5]
     local etag = ARGV[6]
@@ -164,14 +165,23 @@ var putScript = redis.NewScript(0, `
             redis.call('SREM', 'index:' .. term, id)
         elseif x == 2 then 
             redis.call('SADD', 'index:' .. term, id)
+            if string.sub(term, 1, 7) == 'import:' then
+                local import = string.sub(term, 8)
+                if redis.call('EXISTS', 'id:' .. import) == 0  and redis.call('SISMEMBER', 'badCrawl', import) == 0 then
+                    redis.call('SADD', 'newCrawl', import)
+                end
+            end
         end
     end
 
+    redis.call('SREM', 'badCrawl', path)
+    redis.call('SREM', 'newCrawl', path)
+
     if nextCrawl ~= '0' then
-        redis.call('ZADD', 'crawl', nextCrawl, id)
+        redis.call('ZADD', 'nextCrawl', nextCrawl, id)
     end
 
-    return redis.call('HMSET', 'pkg:' .. id, 'path', path, 'synopsis', synopsis, 'rank', rank, 'gob', gob, 'terms', terms, 'etag', etag, 'kind', kind)
+    return redis.call('HMSET', 'pkg:' .. id, 'path', path, 'synopsis', synopsis, 'score', score, 'gob', gob, 'terms', terms, 'etag', etag, 'kind', kind)
 `)
 
 // Put adds the package documentation to the database.
@@ -179,8 +189,8 @@ func (db *Database) Put(pdoc *doc.Package, nextCrawl time.Time) error {
 	c := db.Pool.Get()
 	defer c.Close()
 
-	rank := documentRank(pdoc)
-	terms := documentTerms(pdoc, rank)
+	score := documentScore(pdoc)
+	terms := documentTerms(pdoc, score)
 
 	var gobBuf bytes.Buffer
 	if err := gob.NewEncoder(&gobBuf).Encode(pdoc); err != nil {
@@ -220,7 +230,7 @@ func (db *Database) Put(pdoc *doc.Package, nextCrawl time.Time) error {
 	if !nextCrawl.IsZero() {
 		t = nextCrawl.Unix()
 	}
-	_, err = putScript.Do(c, pdoc.ImportPath, pdoc.Synopsis, rank, gobBytes, strings.Join(terms, " "), pdoc.Etag, kind, t)
+	_, err = putScript.Do(c, pdoc.ImportPath, pdoc.Synopsis, score, gobBytes, strings.Join(terms, " "), pdoc.Etag, kind, t)
 	return err
 }
 
@@ -233,7 +243,7 @@ var setNextCrawlEtagScript = redis.NewScript(0, `
 
     for i=1,#pkgs,2 do
         if pkgs[i+1] == etag then
-            redis.call('ZADD', 'crawl', nextCrawl, pkgs[i])
+            redis.call('ZADD', 'nextCrawl', nextCrawl, pkgs[i])
         end
     end
 `)
@@ -253,8 +263,8 @@ var setNextCrawlScript = redis.NewScript(0, `
     local pkgs = redis.call('SORT', 'index:project:' .. root, 'GET', '#')
 
     for i=1,#pkgs do
-        if nextCrawl < tonumber(redis.call('ZSCORE', 'crawl', pkgs[i])) then
-            redis.call('ZADD', 'crawl', nextCrawl, pkgs[i])
+        if nextCrawl < tonumber(redis.call('ZSCORE', 'nextCrawl', pkgs[i])) then
+            redis.call('ZADD', 'nextCrawl', nextCrawl, pkgs[i])
         end
     end
 `)
@@ -274,7 +284,7 @@ var getDocScript = redis.NewScript(0, `
 
     local id
     if path == '-' then
-        local r = redis.call('ZRANGE', 'crawl', 0, 0)
+        local r = redis.call('ZRANGE', 'nextCrawl', 0, 0)
         if not r or #r == 0 then
             return false
         end
@@ -291,7 +301,7 @@ var getDocScript = redis.NewScript(0, `
         return false
     end
 
-    local nextCrawl = redis.call('ZSCORE', 'crawl', id)
+    local nextCrawl = redis.call('ZSCORE', 'nextCrawl', id)
     if not nextCrawl then 
         nextCrawl = 0
     end
@@ -430,7 +440,9 @@ var deleteScript = redis.NewScript(0, `
         redis.call('SREM', 'index:' .. term, id)
     end
 
-    redis.call('ZREM', 'crawl', id)
+    redis.call('ZREM', 'nextCrawl', id)
+    redis.call('SREM', 'badCrawl', path)
+    redis.call('SREM', 'newCrawl', path)
     redis.call('ZREM', 'popular', id)
     redis.call('DEL', 'pkg:' .. id)
     return redis.call('DEL', 'id:' .. path)
@@ -490,41 +502,10 @@ func (db *Database) Project(projectRoot string) ([]Package, error) {
 	return db.getPackages("index:project:"+normalizeProjectRoot(projectRoot), true)
 }
 
-func (db *Database) Suggestions(query string) ([]Package, error) {
-	c := db.Pool.Get()
-	defer c.Close()
-	reply, err := c.Do("SORT", "index:suggest:"+suggestPrefix(query),
-		"DESC", "BY", "pkg:*->rank",
-		"GET", "pkg:*->path", "GET", "pkg:*->synopsis", "GET", "pkg:*->kind")
-	if err != nil {
-		return nil, err
-	}
-	pkgs, err := packages(reply, false)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]Package, 0, 20)
-	var j = 0
-	for i := range pkgs {
-		base := path.Base(pkgs[i].Path)
-		if base == query {
-			// Copy exact matches to result.
-			result = append(result, pkgs[i])
-		} else if strings.HasPrefix(base, query) {
-			// Move prefix matches down.
-			pkgs[j] = pkgs[i]
-			j += 1
-		}
-	}
-	// append prefix matches to exact matches
-	result = append(result, pkgs[:j]...)
-	return result, nil
-}
-
 func (db *Database) AllPackages() ([]Package, error) {
 	c := db.Pool.Get()
 	defer c.Close()
-	values, err := redis.Values(c.Do("SORT", "crawl", "DESC", "BY", "pkg:*->rank", "GET", "pkg:*->path", "GET", "pkg:*->kind"))
+	values, err := redis.Values(c.Do("SORT", "nextCrawl", "DESC", "BY", "pkg:*->score", "GET", "pkg:*->path", "GET", "pkg:*->kind"))
 	if err != nil {
 		return nil, err
 	}
@@ -645,7 +626,7 @@ func (db *Database) Query(q string) ([]Package, error) {
 		args = append(args, "index:"+term)
 	}
 	c.Send("SINTERSTORE", args...)
-	c.Send("SORT", id, "DESC", "BY", "pkg:*->rank", "GET", "pkg:*->path", "GET", "pkg:*->synopsis", "GET", "pkg:*->kind")
+	c.Send("SORT", id, "DESC", "BY", "pkg:*->score", "GET", "pkg:*->path", "GET", "pkg:*->synopsis", "GET", "pkg:*->kind")
 	c.Send("DEL", id)
 	values, err := redis.Values(c.Do(""))
 	if err != nil {
@@ -667,10 +648,10 @@ func (db *Database) Query(q string) ([]Package, error) {
 }
 
 type PackageInfo struct {
-	PDoc *doc.Package
-	Pkgs []Package
-	Rank float64
-	Kind string
+	PDoc  *doc.Package
+	Pkgs  []Package
+	Score float64
+	Kind  string
 }
 
 // Do executes function f for each document in the database.
@@ -682,7 +663,7 @@ func (db *Database) Do(f func(*PackageInfo) error) error {
 		return err
 	}
 	for _, key := range keys {
-		values, err := redis.Values(c.Do("HMGET", key, "gob", "rank", "kind", "path"))
+		values, err := redis.Values(c.Do("HMGET", key, "gob", "score", "kind", "path"))
 		if err != nil {
 			return err
 		}
@@ -693,7 +674,7 @@ func (db *Database) Do(f func(*PackageInfo) error) error {
 			path string
 		)
 
-		if _, err := redis.Scan(values, &p, &pi.Rank, &pi.Kind, &path); err != nil {
+		if _, err := redis.Scan(values, &p, &pi.Score, &pi.Kind, &path); err != nil {
 			return err
 		}
 
@@ -823,13 +804,12 @@ var incrementPopularScore = redis.NewScript(0, `
 
     local t0 = redis.call('GET', 'popular:0') or '0'
     local f = math.exp(tonumber(t) - tonumber(t0))
-    if f > 100 then
-        redis.call('ZREMRANGEBYSCORE', 'popular', '-inf', 0.01 * f)
-        redis.call('ZUNIONSTORE', 'popular', 1, 'popular', 'WEIGHTS', 1.0 / f)
+    redis.call('ZINCRBY', 'popular', tonumber(n) * f, id)
+    if f > 10 then
         redis.call('SET', 'popular:0', t)
-        f = 1
+        redis.call('ZUNIONSTORE', 'popular', 1, 'popular', 'WEIGHTS', 1.0 / f)
+        redis.call('ZREMRANGEBYSCORE', 'popular', '-inf', 0.05)
     end
-    return redis.call('ZINCRBY', 'popular', tonumber(n) * f, id)
 `)
 
 const popularHalfLife = time.Hour * 24 * 7
@@ -870,4 +850,50 @@ func (db *Database) Popular(count int) ([]Package, error) {
 	}
 	pkgs, err := packages(reply, false)
 	return pkgs, err
+}
+
+var popularWithScoreScript = redis.NewScript(0, `
+    local ids = redis.call('ZREVRANGE', 'popular', '0', -1, 'WITHSCORES')
+    local result = {}
+    for i=1,#ids,2 do
+        result[#result+1] = redis.call('HGET', 'pkg:' .. ids[i], 'path')
+        result[#result+1] = ids[i+1]
+        result[#result+1] = 'p'
+    end
+    return result
+`)
+
+func (db *Database) PopularWithScores() ([]Package, error) {
+	c := db.Pool.Get()
+	defer c.Close()
+	reply, err := popularWithScoreScript.Do(c)
+	if err != nil {
+		return nil, err
+	}
+	pkgs, err := packages(reply, false)
+	return pkgs, err
+}
+
+func (db *Database) GetNewCrawl() (string, error) {
+	c := db.Pool.Get()
+	defer c.Close()
+	v, err := redis.String(c.Do("SRANDMEMBER", "newCrawl"))
+	if err == redis.ErrNil {
+		err = nil
+	}
+	return v, err
+}
+
+var setBadCrawlScript = redis.NewScript(0, `
+    local path = ARGV[1]
+    if redis.call('SREM', 'newCrawl', path) == 1 then
+        redis.call('SADD', 'badCrawl', path)
+    end
+`)
+
+func (db *Database) SetBadCrawl(path string) error {
+	c := db.Pool.Get()
+	defer c.Close()
+	_, err := setBadCrawlScript.Do(c, path)
+	return err
 }

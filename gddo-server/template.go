@@ -57,7 +57,7 @@ func fileHashFn(p string) (string, error) {
 	staticMutex.RUnlock()
 
 	if !ok {
-		b, err := ioutil.ReadFile(filepath.Join(*baseDir, filepath.FromSlash(p)))
+		b, err := ioutil.ReadFile(filepath.Join(*assetsDir, filepath.FromSlash(p)))
 		if err != nil {
 			return "", err
 		}
@@ -218,18 +218,18 @@ func codeFn(c doc.Code, typ *doc.Type) htemp.HTML {
 		htemp.HTMLEscape(&buf, src[last:a.Pos])
 		switch a.Kind {
 		case doc.PackageLinkAnnotation:
-			p := "/" + a.ImportPath
+			p := "/" + c.Paths[a.PathIndex]
 			buf.WriteString(`<a href="`)
 			buf.WriteString(escapePath(p))
 			buf.WriteString(`">`)
 			htemp.HTMLEscape(&buf, src[a.Pos:a.End])
 			buf.WriteString(`</a>`)
 		case doc.ExportLinkAnnotation, doc.BuiltinAnnotation:
-			p := a.ImportPath
+			var p string
 			if a.Kind == doc.BuiltinAnnotation {
 				p = "/builtin"
-			} else if p != "" {
-				p = "/" + p
+			} else if a.PathIndex >= 0 {
+				p = "/" + c.Paths[a.PathIndex]
 			}
 			n := src[a.Pos:a.End]
 			n = n[bytes.LastIndex(n, period)+1:]
@@ -264,6 +264,9 @@ func codeFn(c doc.Code, typ *doc.Type) htemp.HTML {
 }
 
 func pageNameFn(pdoc *doc.Package) string {
+	if pdoc.Name != "" && !pdoc.IsCmd {
+		return pdoc.Name
+	}
 	_, name := path.Split(pdoc.ImportPath)
 	return name
 }
@@ -319,7 +322,11 @@ func breadcrumbsFn(pdoc *doc.Package, templateName string) htemp.HTML {
 		if i != 0 {
 			buf.WriteString(`<span class="muted">/</span>`)
 		}
-		link := j < len(pdoc.ImportPath) || templateName == "imports.html" || templateName == "importers.html" || templateName == "graph.html"
+		link := j < len(pdoc.ImportPath) ||
+			templateName == "imports.html" ||
+			templateName == "importers.html" ||
+			templateName == "graph.html" ||
+			templateName == "interface.html"
 		if link {
 			buf.WriteString(`<a href="/`)
 			buf.WriteString(escapePath(pdoc.ImportPath[:j]))
@@ -364,7 +371,7 @@ var contentTypes = map[string]string{
 	".txt":  "text/plain; charset=utf-8",
 }
 
-func executeTemplate(resp web.Response, name string, status int, data interface{}) error {
+func executeTemplate(resp web.Response, name string, status int, header web.Header, data interface{}) error {
 	contentType, ok := contentTypes[path.Ext(name)]
 	if !ok {
 		contentType = "text/plain; charset=utf-8"
@@ -373,7 +380,11 @@ func executeTemplate(resp web.Response, name string, status int, data interface{
 	if t == nil {
 		return fmt.Errorf("Template %s not found", name)
 	}
-	w := resp.Start(status, web.Header{web.HeaderContentType: {contentType}})
+	if header == nil {
+		header = make(web.Header)
+	}
+	header.Set(web.HeaderContentType, contentType)
+	w := resp.Start(status, header)
 	return t.Execute(w, data)
 }
 
@@ -381,10 +392,10 @@ var templates = map[string]interface {
 	Execute(io.Writer, interface{}) error
 }{}
 
-func joinTemplateDir(baseDir string, files []string) []string {
+func joinTemplateDir(base string, files []string) []string {
 	result := make([]string, len(files))
 	for i := range files {
-		result[i] = filepath.Join(baseDir, "templates", files[i])
+		result[i] = filepath.Join(base, "templates", files[i])
 	}
 	return result
 }
@@ -412,7 +423,7 @@ func parseHTMLTemplates(sets [][]string) error {
 			"fileHash":          fileHashFn,
 			"templateName":      func() string { return templateName },
 		})
-		if _, err := t.ParseFiles(joinTemplateDir(*baseDir, set)...); err != nil {
+		if _, err := t.ParseFiles(joinTemplateDir(*assetsDir, set)...); err != nil {
 			return err
 		}
 		t = t.Lookup("ROOT")
@@ -430,7 +441,7 @@ func parseTextTemplates(sets [][]string) error {
 		t.Funcs(ttemp.FuncMap{
 			"comment": commentTextFn,
 		})
-		if _, err := t.ParseFiles(joinTemplateDir(*baseDir, set)...); err != nil {
+		if _, err := t.ParseFiles(joinTemplateDir(*assetsDir, set)...); err != nil {
 			return err
 		}
 		t = t.Lookup("ROOT")
@@ -447,7 +458,7 @@ var presentTemplates = make(map[string]*htemp.Template)
 func parsePresentTemplates(sets [][]string) error {
 	for _, set := range sets {
 		t := present.Template()
-		if _, err := t.ParseFiles(joinTemplateDir(*presentBaseDir, set[1:])...); err != nil {
+		if _, err := t.ParseFiles(joinTemplateDir(*presentDir, set[1:])...); err != nil {
 			return err
 		}
 		t = t.Lookup("root")

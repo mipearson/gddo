@@ -19,7 +19,6 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/garyburd/gopkgdoc/doc"
 )
@@ -39,22 +38,9 @@ func normalizeProjectRoot(projectRoot string) string {
 	return projectRoot
 }
 
-func suggestPrefix(s string) string {
-	var i, n int
-	for n < len(s) {
-		_, m := utf8.DecodeRuneInString(s[n:])
-		n += m
-		i += 1
-		if i == 2 {
-			return s[:n]
-		}
-	}
-	return ""
-}
-
 var httpPat = regexp.MustCompile(`https?://\S+`)
 
-func documentTerms(pdoc *doc.Package, rank float64) []string {
+func documentTerms(pdoc *doc.Package, score float64) []string {
 
 	terms := make(map[string]bool)
 
@@ -71,7 +57,7 @@ func documentTerms(pdoc *doc.Package, rank float64) []string {
 		}
 	}
 
-	if rank > 0 {
+	if score > 0 {
 
 		if isStandardPackage(pdoc.ImportPath) {
 			for _, term := range parseQuery(pdoc.ImportPath) {
@@ -96,10 +82,6 @@ func documentTerms(pdoc *doc.Package, rank float64) []string {
 				terms[stem(s)] = true
 			}
 		}
-
-		if s := suggestPrefix(path.Base(pdoc.ImportPath)); s != "" {
-			terms["suggest:"+s] = true
-		}
 	}
 
 	result := make([]string, 0, len(terms))
@@ -109,7 +91,7 @@ func documentTerms(pdoc *doc.Package, rank float64) []string {
 	return result
 }
 
-func documentRank(pdoc *doc.Package) float64 {
+func documentScore(pdoc *doc.Package) float64 {
 	if pdoc.Name == "" || pdoc.IsCmd || len(pdoc.Errors) > 0 || strings.HasSuffix(pdoc.ImportPath, ".go") {
 		return 0
 	}
@@ -141,6 +123,10 @@ func documentRank(pdoc *doc.Package) float64 {
 		r = 10
 	default:
 		r = 1
+	}
+
+	for i := 0; i < strings.Count(pdoc.ImportPath[len(pdoc.ProjectRoot):], "/"); i++ {
+		r *= 0.99
 	}
 
 	if strings.Index(pdoc.ImportPath[len(pdoc.ProjectRoot):], "/src/") > 0 {

@@ -133,7 +133,7 @@ func prune(c *command) {
 				}
 			}
 		} else {
-			keep := pi.Rank > 0
+			keep := pi.Score > 0
 			if pdoc.IsCmd && pdoc.Synopsis != "" && len(pdoc.Doc) > len(pdoc.Synopsis) {
 				// Keep a command if there's actually some documentation.
 				keep = true

@@ -343,28 +343,35 @@ func (b *builder) types(tdocs []*doc.Type) []*Type {
 	return result
 }
 
+var packageNamePats = []*regexp.Regexp{
+	// Strip suffix and prefix separated by illegal id runes "." and "-".
+	regexp.MustCompile(`/([^-./]+)[-.](?:go|git)$`),
+	regexp.MustCompile(`/(?:go)[-.]([^-./]+)$`),
+
+	regexp.MustCompile(`^code\.google\.com/p/google-api-go-client/([^/]+)/v[^/]+$`),
+	regexp.MustCompile(`^code\.google\.com/p/biogo\.([^/]+)$`),
+
+	// It's also common for the last element of the path to contain an
+	// extra "go" prefix, but not always. TODO: examine unresolved ids to
+	// detect when trimming the "go" prefix is appropriate.
+
+	// Last component of path.
+	regexp.MustCompile(`([^/]+)$`),
+}
+
 func simpleImporter(imports map[string]*ast.Object, path string) (*ast.Object, error) {
 	pkg := imports[path]
 	if pkg == nil {
-		// Guess the package name without importing it. Start with the last
-		// element of the path.
-		name := path[strings.LastIndex(path, "/")+1:]
-
-		// Trim commonly used prefixes and suffixes containing illegal name
-		// runes.
-		name = strings.TrimSuffix(name, ".go")
-		name = strings.TrimSuffix(name, "-go")
-		name = strings.TrimPrefix(name, "go.")
-		name = strings.TrimPrefix(name, "go-")
-		name = strings.TrimPrefix(name, "biogo.")
-
-		// It's also common for the last element of the path to contain an
-		// extra "go" prefix, but not always. TODO: examine unresolved ids to
-		// detect when trimming the "go" prefix is appropriate.
-
-		pkg = ast.NewObj(ast.Pkg, name)
-		pkg.Data = ast.NewScope(nil)
-		imports[path] = pkg
+		// Guess the package name without importing it.
+		for _, pat := range packageNamePats {
+			m := pat.FindStringSubmatch(path)
+			if m != nil {
+				pkg = ast.NewObj(ast.Pkg, m[1])
+				pkg.Data = ast.NewScope(nil)
+				imports[path] = pkg
+				break
+			}
+		}
 	}
 	return pkg, nil
 }
@@ -480,8 +487,6 @@ type Package struct {
 	Imports      []string
 	TestImports  []string
 	XTestImports []string
-
-	MethodSets map[string]*MethodSet
 }
 
 var goEnvs = []struct{ GOOS, GOARCH string }{
@@ -552,23 +557,15 @@ func (b *builder) build(srcs []*source) (*Package, error) {
 	// Parse the Go files
 
 	files := make(map[string]*ast.File)
-	if bpkg.IsCommand() && b.srcs["doc.go"] != nil {
-		file, err := parser.ParseFile(b.fset, "doc.go", b.srcs["doc.go"].data, parser.ParseComments)
-		if err == nil && file.Name.Name == "documentation" {
-			files["doc.go"] = file
+	for _, name := range append(bpkg.GoFiles, bpkg.CgoFiles...) {
+		file, err := parser.ParseFile(b.fset, name, b.srcs[name].data, parser.ParseComments)
+		if err != nil {
+			b.pdoc.Errors = append(b.pdoc.Errors, err.Error())
+			continue
 		}
-	}
-	if len(files) == 0 {
-		for _, name := range append(bpkg.GoFiles, bpkg.CgoFiles...) {
-			file, err := parser.ParseFile(b.fset, name, b.srcs[name].data, parser.ParseComments)
-			if err != nil {
-				b.pdoc.Errors = append(b.pdoc.Errors, err.Error())
-				continue
-			}
-			b.pdoc.Files = append(b.pdoc.Files, &File{Name: name, URL: b.srcs[name].browseURL})
-			b.pdoc.SourceSize += len(b.srcs[name].data)
-			files[name] = file
-		}
+		b.pdoc.Files = append(b.pdoc.Files, &File{Name: name, URL: b.srcs[name].browseURL})
+		b.pdoc.SourceSize += len(b.srcs[name].data)
+		files[name] = file
 	}
 
 	apkg, _ := ast.NewPackage(b.fset, files, simpleImporter, nil)
@@ -587,7 +584,6 @@ func (b *builder) build(srcs []*source) (*Package, error) {
 	}
 
 	b.vetPackage(apkg)
-	b.pdoc.MethodSets, err = methodSets(b.fset, apkg, b.pdoc.ImportPath)
 
 	mode := doc.Mode(0)
 	if b.pdoc.ImportPath == "builtin" {

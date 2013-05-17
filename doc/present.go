@@ -32,7 +32,7 @@ type presBuilder struct {
 	fetch      func(srcs []*source) error
 }
 
-var assetPat = regexp.MustCompile(`(?m)^\.(play|code|image|iframe)\s+(\S+)`)
+var assetPat = regexp.MustCompile(`(?m)^\.(play|code|image|iframe|html)\s+(\S+)`)
 
 func (b *presBuilder) build() (*Presentation, error) {
 	var data []byte
@@ -44,6 +44,9 @@ func (b *presBuilder) build() (*Presentation, error) {
 		case "iframe", "image":
 			data = append(data, b.data[i:m[4]]...)
 			data = append(data, b.resolveURL(name)...)
+		case "html":
+			// TODO: sanitize and fix relative URLs in HTML.
+			data = append(data, "\ntalks.godoc.org does not support .html\n"...)
 		case "play", "code":
 			data = append(data, b.data[i:m[5]]...)
 			found := false

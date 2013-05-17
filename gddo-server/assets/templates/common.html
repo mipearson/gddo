@@ -25,6 +25,7 @@
   {{if and .pdoc.Name (equal templateName "pkg.html")}}
   <span class="pull-right">
     <a href="#_index">Index</a> 
+    {{if hasExamples .pdoc}}<span class="muted">|</span> <a href="#_examples">Examples</a>{{end}}
     <span class="muted">|</span> <a href="#_files">Files</a>
     {{if .pkgs}}<span class="muted">|</span> <a href="#_subdirs">Directories</a>{{end}}
   </span>
@@ -49,8 +50,16 @@
 
 {{define "PkgCmdHeader"}}{{with .pdoc}}
   <title>{{.|pageName}} - GoDoc</title>
-  {{if .Synopsis}}<meta name="description" content="{{.ProjectName}}: {{.Synopsis}}">{{end}}
-  {{if .Errors}}<meta name="robots" content="noindex">{{end}}
+  {{if .Synopsis}}
+    <meta name="twitter:title" content="{{if .IsCmd}}Command{{else}}package{{end}} {{.Name}}">
+    <meta property="og:title" content="{{if .IsCmd}}Command{{else}}package{{end}} {{.Name}}">
+    <meta name="description" content="{{.Synopsis}}">
+    <meta name="twitter:description" content="{{.Synopsis}}">
+    <meta property="og:description" content="{{.Synopsis}}">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:site" content="@godocdotorg">
+  {{end}}
+  {{if .Errors}}<meta name="robots" content="NOINDEX">{{end}}
 {{end}}{{end}}
 
 {{define "PkgCmdFooter"}}
@@ -62,8 +71,8 @@
 {{end}}
 {{with $.pdoc}}
  <form name="refresh" method="POST" action="/-/refresh" class="form-inline">
-   {{if or .Imports $.importerCount}}Package {{.Name}} {{if .Imports}}imports <a href="?view=imports">{{.Imports|len}} packages</a> (<a href="?view=import-graph">graph</a>){{end}}{{if and .Imports $.importerCount}} and {{end}}{{if $.importerCount}}is imported by <a href="?view=importers">{{$.importerCount}} packages</a>{{end}}.{{end}}
-   {{if not .Updated.IsZero}}GoDoc generated this page {{.Updated|relativeTime}}{{if and .GOOS .GOARCH}} with GOOS={{.GOOS}} and GOARCH={{.GOARCH}}{{end}}.
+   {{if or .Imports $.importerCount}}Package {{.Name}} {{if .Imports}}imports <a href="?imports">{{.Imports|len}} packages</a> (<a href="?import-graph">graph</a>){{end}}{{if and .Imports $.importerCount}} and {{end}}{{if $.importerCount}}is imported by <a href="?importers">{{$.importerCount}} packages</a>{{end}}.{{end}}
+   {{if not .Updated.IsZero}}GoDoc generated this page {{.Updated|relativeTime}}{{if or (equal .GOOS "windows") (equal .GOOS "darwin")}} with GOOS={{.GOOS}}{{end}}.
     <a href="javascript:document.refresh.submit();" title="Refresh this page from the source">Refresh</a>.
     <input type="hidden" name="path" value="{{.ImportPath}}">
   {{end}}

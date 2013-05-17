@@ -54,12 +54,7 @@ func crawlDoc(source string, path string, pdoc *doc.Package, hasSubdirs bool, ne
 		message = append(message, "etag:", etag)
 	}
 
-	now := time.Now()
-	nextCrawl = now.Add(*maxAge)
-	if strings.HasPrefix(path, "github.com/") {
-		nextCrawl = now.Add(*maxAge * 7)
-	}
-
+	start := time.Now()
 	var err error
 	if i := strings.Index(path, "/src/pkg/"); i > 0 && doc.IsGoRepoPath(path[i+len("/src/pkg/"):]) {
 		// Go source tree mirror.
@@ -78,10 +73,15 @@ func crawlDoc(source string, path string, pdoc *doc.Package, hasSubdirs bool, ne
 	} else {
 		var pdocNew *doc.Package
 		pdocNew, err = doc.Get(httpClient, path, etag)
-		message = append(message, "fetch:", int64(time.Since(now)/time.Millisecond))
+		message = append(message, "fetch:", int64(time.Since(start)/time.Millisecond))
 		if err != doc.ErrNotModified {
 			pdoc = pdocNew
 		}
+	}
+
+	nextCrawl = start.Add(*maxAge)
+	if strings.HasPrefix(path, "github.com/") || (pdoc != nil && len(pdoc.Errors) > 0) {
+		nextCrawl = start.Add(*maxAge * 7)
 	}
 
 	switch {
@@ -111,6 +111,25 @@ func crawlDoc(source string, path string, pdoc *doc.Package, hasSubdirs bool, ne
 func crawl(interval time.Duration) {
 	for {
 		time.Sleep(interval)
+
+		// Look for new package to crawl.
+
+		importPath, err := db.GetNewCrawl()
+		if err != nil {
+			log.Printf("db.GetNewCrawl() returned error %v", err)
+			continue
+		}
+		if importPath != "" {
+			if pdoc, err := crawlDoc("new", importPath, nil, false, time.Time{}); err != nil || pdoc == nil {
+				if err := db.SetBadCrawl(importPath); err != nil {
+					log.Printf("ERROR db.SetBadCrawl(%q): %v", importPath, err)
+				}
+			}
+			continue
+		}
+
+		// Crawl existing doc.
+
 		pdoc, pkgs, nextCrawl, err := db.Get("-")
 		if err != nil {
 			log.Printf("db.Get(\"-\") returned error %v", err)
@@ -119,8 +138,7 @@ func crawl(interval time.Duration) {
 		if pdoc == nil || nextCrawl.After(time.Now()) {
 			continue
 		}
-		_, err = crawlDoc("crawl", pdoc.ImportPath, pdoc, len(pkgs) > 0, nextCrawl)
-		if err != nil {
+		if _, err = crawlDoc("crawl", pdoc.ImportPath, pdoc, len(pkgs) > 0, nextCrawl); err != nil {
 			// Touch package so that crawl advances to next package.
 			if err := db.SetNextCrawlEtag(pdoc.ProjectRoot, pdoc.Etag, time.Now().Add(*maxAge/3)); err != nil {
 				log.Printf("ERROR db.TouchLastCrawl(%q): %v", pdoc.ImportPath, err)

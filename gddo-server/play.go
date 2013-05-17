@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/garyburd/gopkgdoc/doc"
@@ -64,22 +63,23 @@ func findExample(pdoc *doc.Package, export, method, name string) *doc.Example {
 	return nil
 }
 
-var examplePat = regexp.MustCompile(`^([^.-]+)(?:\.([^-]+))?(?:-(.+))?`)
-
-func playURL(pdoc *doc.Package, example string) (string, error) {
-	if m := examplePat.FindStringSubmatch(example); m != nil {
-		if e := findExample(pdoc, m[1], m[2], m[3]); e != nil && e.Play != "" {
-			resp, err := httpClient.Post("http://play.golang.org/share", "text/plain", strings.NewReader(e.Play))
-			if err != nil {
-				return "", err
-			}
-			defer resp.Body.Close()
-			p, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("http://play.golang.org/p/%s", p), nil
+func playURL(pdoc *doc.Package, export string, name string) (string, error) {
+	var method string
+	if i := strings.Index(export, "-"); i > 0 {
+		method = export[i+1:]
+		export = export[:i]
+	}
+	if e := findExample(pdoc, export, method, name); e != nil && e.Play != "" {
+		resp, err := httpClient.Post("http://play.golang.org/share", "text/plain", strings.NewReader(e.Play))
+		if err != nil {
+			return "", err
 		}
+		defer resp.Body.Close()
+		p, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("http://play.golang.org/p/%s", p), nil
 	}
 	return "", &web.Error{Status: web.StatusNotFound}
 }

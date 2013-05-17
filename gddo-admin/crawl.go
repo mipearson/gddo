@@ -20,20 +20,16 @@ import (
 	"os"
 
 	"github.com/garyburd/gopkgdoc/database"
+	"github.com/garyburd/redigo/redis"
 )
 
-var (
-	popularCommand = &command{
-		name:  "popular",
-		usage: "popular",
-	}
-)
-
-func init() {
-	popularCommand.run = popular
+var crawlCommand = &command{
+	name:  "crawl",
+	run:   crawl,
+	usage: "crawl",
 }
 
-func popular(c *command) {
+func crawl(c *command) {
 	if len(c.flag.Args()) != 0 {
 		c.printUsage()
 		os.Exit(1)
@@ -42,11 +38,24 @@ func popular(c *command) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	pkgs, err := db.PopularWithScores()
+	conn := db.Pool.Get()
+	defer conn.Close()
+
+	paths, err := redis.Strings(conn.Do("SMEMBERS", "newCrawl"))
 	if err != nil {
 		log.Fatal(err)
 	}
-	for _, pkg := range pkgs {
-		fmt.Println(pkg.Path, pkg.Synopsis)
+	fmt.Println("NEW")
+	for _, path := range paths {
+		fmt.Println(path)
+	}
+
+	paths, err = redis.Strings(conn.Do("SMEMBERS", "badCrawl"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("BAD")
+	for _, path := range paths {
+		fmt.Println(path)
 	}
 }

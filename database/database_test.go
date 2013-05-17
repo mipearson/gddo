@@ -196,6 +196,7 @@ func TestPutGet(t *testing.T) {
 	c.Send("DEL", "maxPackageId")
 	c.Send("DEL", "block")
 	c.Send("DEL", "popular:0")
+	c.Send("DEL", "newCrawl")
 	if n, err := c.Do("DBSIZE"); n != int64(0) || err != nil {
 		t.Errorf("c.Do(DBSIZE) = %d, %v, want 0, nil", n, err)
 	}

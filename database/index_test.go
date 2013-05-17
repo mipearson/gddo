@@ -46,7 +46,6 @@ var indexTests = []struct {
 			"repres",
 			"strconv",
 			"string",
-			"suggest:st",
 			"typ"},
 	},
 	{&doc.Package{
@@ -92,15 +91,14 @@ var indexTests = []struct {
 			"import:net/url", "import:regexp", "import:sort", "import:strconv",
 			"import:strings", "import:sync", "import:time", "interfac",
 			"oau", "project:github.com/user/repo", "rfc", "subset",
-			"suggest:di",
 		},
 	},
 }
 
 func TestDocTerms(t *testing.T) {
 	for _, tt := range indexTests {
-		rank := documentRank(tt.pdoc)
-		terms := documentTerms(tt.pdoc, rank)
+		score := documentScore(tt.pdoc)
+		terms := documentTerms(tt.pdoc, score)
 		sort.Strings(terms)
 		sort.Strings(tt.terms)
 		if !reflect.DeepEqual(terms, tt.terms) {

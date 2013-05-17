@@ -20,20 +20,16 @@ import (
 	"os"
 
 	"github.com/garyburd/gopkgdoc/database"
+	"github.com/garyburd/gopkgdoc/doc"
 )
 
-var (
-	popularCommand = &command{
-		name:  "popular",
-		usage: "popular",
-	}
-)
-
-func init() {
-	popularCommand.run = popular
+var dangleCommand = &command{
+	name:  "dangle",
+	run:   dangle,
+	usage: "dangle",
 }
 
-func popular(c *command) {
+func dangle(c *command) {
 	if len(c.flag.Args()) != 0 {
 		c.printUsage()
 		os.Exit(1)
@@ -42,11 +38,30 @@ func popular(c *command) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	pkgs, err := db.PopularWithScores()
-	if err != nil {
-		log.Fatal(err)
-	}
-	for _, pkg := range pkgs {
-		fmt.Println(pkg.Path, pkg.Synopsis)
+	m := make(map[string]int)
+	err = db.Do(func(pi *database.PackageInfo) error {
+		m[pi.PDoc.ImportPath] |= 1
+		for _, p := range pi.PDoc.Imports {
+			if doc.IsValidPath(p) {
+				m[p] |= 2
+			}
+		}
+		for _, p := range pi.PDoc.TestImports {
+			if doc.IsValidPath(p) {
+				m[p] |= 2
+			}
+		}
+		for _, p := range pi.PDoc.XTestImports {
+			if doc.IsValidPath(p) {
+				m[p] |= 2
+			}
+		}
+		return nil
+	})
+
+	for p, v := range m {
+		if v == 2 {
+			fmt.Println(p)
+		}
 	}
 }

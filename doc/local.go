@@ -15,38 +15,56 @@
 package doc
 
 import (
+	"fmt"
+	"go/build"
 	"io/ioutil"
 	"path/filepath"
+	"strconv"
+	"time"
 )
 
-// GetDir gets the documentation for the package in dir.
-func GetDir(dir string) (*Package, error) {
+// GetLocal gets the documentation from the localy installed
+func GetLocal(importPath string, goroot, gopath string, browseURLFmt, lineFmt string) (*Package, error) {
+	ctx := build.Default
+	if goroot != "" {
+		ctx.GOROOT = goroot
+	}
+	if gopath != "" {
+		ctx.GOPATH = gopath
+	}
+	bpkg, err := ctx.Import(importPath, ".", build.FindOnly)
+	if err != nil {
+		return nil, err
+	}
+	dir := filepath.Join(bpkg.SrcRoot, filepath.FromSlash(importPath))
 	fis, err := ioutil.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
-
+	var modTime time.Time
 	var files []*source
 	for _, fi := range fis {
 		if fi.IsDir() || !isDocFile(fi.Name()) {
 			continue
+		}
+		if fi.ModTime().After(modTime) {
+			modTime = fi.ModTime()
 		}
 		b, err := ioutil.ReadFile(filepath.Join(dir, fi.Name()))
 		if err != nil {
 			return nil, err
 		}
 		files = append(files, &source{
-			name: fi.Name(),
-			data: b,
+			name:      fi.Name(),
+			browseURL: fmt.Sprintf(browseURLFmt, fi.Name()),
+			data:      b,
 		})
 	}
 	b := &builder{
+		lineFmt: lineFmt,
 		pdoc: &Package{
-			ImportPath:  "example.com/project/package",
-			ProjectRoot: "example.com/project",
-			ProjectName: "pacakge",
-			ProjectURL:  "http://example.com/project",
-			Etag:        "e-t-a-g",
+			ImportPath: importPath,
+			Etag:       strconv.FormatInt(modTime.Unix(), 16),
 		},
 	}
 	return b.build(files)

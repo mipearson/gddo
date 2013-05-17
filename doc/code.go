@@ -19,7 +19,6 @@ import (
 	"go/printer"
 	"go/scanner"
 	"go/token"
-	"math"
 	"strconv"
 )
 
@@ -75,10 +74,10 @@ var predeclared = map[string]int{
 	"recover": predeclaredFunction,
 }
 
-type AnnotationKind int16
+type AnnotationKind int32
 
 const (
-	// Link to export in package specifed by ImportPath with fragment
+	// Link to export in package specifed by Paths[PathIndex] with fragment
 	// Text[strings.LastIndex(Text[Pos:End], ".")+1:End].
 	ExportLinkAnnotation AnnotationKind = iota
 
@@ -89,7 +88,7 @@ const (
 	// Comment.
 	CommentAnnotation
 
-	// Link to package specified by ImportPath.
+	// Link to package specified by Paths[PathIndex].
 	PackageLinkAnnotation
 
 	// Link to builtin entity with name Text[Pos:End].
@@ -97,23 +96,36 @@ const (
 )
 
 type Annotation struct {
-	Pos, End   int16
-	Kind       AnnotationKind
-	ImportPath string
+	Pos, End  int32
+	Kind      AnnotationKind
+	PathIndex int32
 }
 
 type Code struct {
 	Text        string
 	Annotations []Annotation
+	Paths       []string
 }
 
 // annotationVisitor collects annotations.
 type annotationVisitor struct {
 	annotations []Annotation
+	paths       []string
+	pathIndex   map[string]int
 }
 
 func (v *annotationVisitor) add(kind AnnotationKind, importPath string) {
-	v.annotations = append(v.annotations, Annotation{Kind: kind, ImportPath: importPath})
+	pathIndex := -1
+	if importPath != "" {
+		var ok bool
+		pathIndex, ok = v.pathIndex[importPath]
+		if !ok {
+			pathIndex = len(v.paths)
+			v.paths = append(v.paths, importPath)
+			v.pathIndex[importPath] = pathIndex
+		}
+	}
+	v.annotations = append(v.annotations, Annotation{Kind: kind, PathIndex: int32(pathIndex)})
 }
 
 func (v *annotationVisitor) ignoreName() {
@@ -196,7 +208,7 @@ func (v *annotationVisitor) Visit(n ast.Node) ast.Visitor {
 }
 
 func printDecl(decl ast.Node, fset *token.FileSet, buf []byte) (Code, []byte) {
-	v := &annotationVisitor{}
+	v := &annotationVisitor{pathIndex: make(map[string]int)}
 	ast.Walk(v, decl)
 	buf = buf[:0]
 	err := (&printer.Config{Mode: printer.UseSpaces, Tabwidth: 4}).Fprint(sliceWriter{&buf}, fset, decl)
@@ -218,10 +230,7 @@ loop:
 		case token.COMMENT:
 			p := file.Offset(pos)
 			e := p + len(lit)
-			if p > math.MaxInt16 || e > math.MaxInt16 {
-				break loop
-			}
-			annotations = append(annotations, Annotation{Kind: CommentAnnotation, Pos: int16(p), End: int16(e)})
+			annotations = append(annotations, Annotation{Kind: CommentAnnotation, Pos: int32(p), End: int32(e)})
 		case token.IDENT:
 			if len(v.annotations) == 0 {
 				// Oops!
@@ -234,15 +243,12 @@ loop:
 			}
 			p := file.Offset(pos)
 			e := p + len(lit)
-			if p > math.MaxInt16 || e > math.MaxInt16 {
-				break loop
-			}
-			annotation.Pos = int16(p)
-			annotation.End = int16(e)
+			annotation.Pos = int32(p)
+			annotation.End = int32(e)
 			if len(annotations) > 0 && annotation.Kind == ExportLinkAnnotation {
 				prev := annotations[len(annotations)-1]
 				if prev.Kind == PackageLinkAnnotation &&
-					prev.ImportPath == annotation.ImportPath &&
+					prev.PathIndex == annotation.PathIndex &&
 					prev.End+1 == annotation.Pos {
 					// merge with previous
 					annotation.Pos = prev.Pos
@@ -253,7 +259,7 @@ loop:
 			annotations = append(annotations, annotation)
 		}
 	}
-	return Code{Text: string(buf), Annotations: annotations}, buf
+	return Code{Text: string(buf), Annotations: annotations, Paths: v.paths}, buf
 }
 
 func commentAnnotations(src string) []Annotation {
@@ -270,10 +276,7 @@ func commentAnnotations(src string) []Annotation {
 		case token.COMMENT:
 			p := file.Offset(pos)
 			e := p + len(lit)
-			if p > math.MaxInt16 || e > math.MaxInt16 {
-				return annotations
-			}
-			annotations = append(annotations, Annotation{Kind: CommentAnnotation, Pos: int16(p), End: int16(e)})
+			annotations = append(annotations, Annotation{Kind: CommentAnnotation, Pos: int32(p), End: int32(e)})
 		}
 	}
 	return nil

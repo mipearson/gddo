@@ -63,6 +63,13 @@ type crawlResult struct {
 // getDoc gets the package documentation from the database or from the version
 // control system as needed.
 func getDoc(path string, requestType int) (*doc.Package, []database.Package, error) {
+	if path == "-" {
+		// A hack in the database package uses the path "-" to represent the
+		// next document to crawl. Block "-" here so that requests to /- always
+		// return not found.
+		return nil, nil, nil
+	}
+
 	pdoc, pkgs, nextCrawl, err := db.Get(path)
 	if err != nil {
 		return nil, nil, err
@@ -132,6 +139,11 @@ func popularLinkReferral(req *web.Request) bool {
 	return req.Header.Get("Referer") == u.String()
 }
 
+func hasFormValue(req *web.Request, key string) bool {
+	_, ok := req.Form[key]
+	return ok
+}
+
 func servePackage(resp web.Response, req *web.Request) error {
 	p := path.Clean(req.URL.Path)
 	if strings.HasPrefix(p, "/pkg/") {
@@ -168,60 +180,13 @@ func servePackage(resp web.Response, req *web.Request) error {
 		}
 	}
 
-	switch req.Form.Get("view") {
-	case "imports":
-		if pdoc.Name == "" {
-			break
-		}
-		pkgs, err = db.Packages(pdoc.Imports)
-		if err != nil {
-			return err
-		}
-		return executeTemplate(resp, "imports.html", web.StatusOK, map[string]interface{}{
-			"pkgs": pkgs,
-			"pdoc": pdoc,
-		})
-	case "importers":
-		if pdoc.Name == "" {
-			break
-		}
-		pkgs, err = db.Importers(path)
-		if err != nil {
-			return err
-		}
-		return executeTemplate(resp, "importers.html", web.StatusOK, map[string]interface{}{
-			"pkgs": pkgs,
-			"pdoc": pdoc,
-		})
-	case "import-graph":
-		if pdoc.Name == "" {
-			break
-		}
-		hide := req.Form.Get("hide") == "1"
-		pkgs, edges, err := db.ImportGraph(pdoc, hide)
-		if err != nil {
-			return err
-		}
-		b, err := renderGraph(pdoc, pkgs, edges)
-		if err != nil {
-			return err
-		}
-		return executeTemplate(resp, "graph.html", web.StatusOK, map[string]interface{}{
-			"svg":  template.HTML(b),
-			"pdoc": pdoc,
-			"hide": hide,
-		})
-	case "play":
-		u, err := playURL(pdoc, req.Form.Get("example"))
-		if err != nil {
-			return err
-		}
-		return web.Redirect(resp, req, u, 301, nil)
-	case "":
+	switch {
+	case len(req.Form) == 0:
 		if requestType == humanRequest &&
 			pdoc.Name != "" && // not a directory
 			pdoc.ProjectRoot != "" && // not a standard package
 			!pdoc.IsCmd &&
+			len(pdoc.Errors) == 0 &&
 			!popularLinkReferral(req) {
 			if err := db.IncrementPopularScore(pdoc.ImportPath); err != nil {
 				log.Print("ERROR db.IncrementPopularScore(%s): %v", pdoc.ImportPath, err)
@@ -239,11 +204,77 @@ func servePackage(resp web.Response, req *web.Request) error {
 		}
 		template += templateExt(req)
 
-		return executeTemplate(resp, template, web.StatusOK, map[string]interface{}{
+		return executeTemplate(resp, template, web.StatusOK, nil, map[string]interface{}{
 			"pkgs":          pkgs,
 			"pdoc":          pdoc,
 			"importerCount": importerCount,
 		})
+	case hasFormValue(req, "imports"):
+		if pdoc.Name == "" {
+			break
+		}
+		pkgs, err = db.Packages(pdoc.Imports)
+		if err != nil {
+			return err
+		}
+		return executeTemplate(resp, "imports.html", web.StatusOK, nil, map[string]interface{}{
+			"pkgs": pkgs,
+			"pdoc": pdoc,
+		})
+	case hasFormValue(req, "importers"):
+		if pdoc.Name == "" {
+			break
+		}
+		pkgs, err = db.Importers(path)
+		if err != nil {
+			return err
+		}
+		return executeTemplate(resp, "importers.html", web.StatusOK, nil, map[string]interface{}{
+			"pkgs": pkgs,
+			"pdoc": pdoc,
+		})
+	case hasFormValue(req, "import-graph"):
+		if pdoc.Name == "" {
+			break
+		}
+		hide := req.Form.Get("hide") == "1"
+		pkgs, edges, err := db.ImportGraph(pdoc, hide)
+		if err != nil {
+			return err
+		}
+		b, err := renderGraph(pdoc, pkgs, edges)
+		if err != nil {
+			return err
+		}
+		return executeTemplate(resp, "graph.html", web.StatusOK, nil, map[string]interface{}{
+			"svg":  template.HTML(b),
+			"pdoc": pdoc,
+			"hide": hide,
+		})
+	case req.Form.Get("play") != "":
+		u, err := playURL(pdoc, req.Form.Get("play"), req.Form.Get("name"))
+		if err != nil {
+			return err
+		}
+		return web.Redirect(resp, req, u, 301, nil)
+	case req.Form.Get("view") != "":
+		// Redirect deprecated view= queries.
+		var q string
+		switch view := req.Form.Get("view"); view {
+		case "imports", "importers":
+			q = view
+		case "import-graph":
+			if req.Form.Get("hide") == "1" {
+				q = "import-graph&hide=1"
+			} else {
+				q = "import-graph"
+			}
+		}
+		if q != "" {
+			u := *req.URL
+			u.RawQuery = q
+			return web.Redirect(resp, req, u.String(), 301, nil)
+		}
 	}
 	return &web.Error{Status: web.StatusNotFound}
 }
@@ -275,7 +306,7 @@ func serveGoIndex(resp web.Response, req *web.Request) error {
 	if err != nil {
 		return err
 	}
-	return executeTemplate(resp, "std.html", web.StatusOK, map[string]interface{}{
+	return executeTemplate(resp, "std.html", web.StatusOK, nil, map[string]interface{}{
 		"pkgs": pkgs,
 	})
 }
@@ -285,7 +316,7 @@ func serveIndex(resp web.Response, req *web.Request) error {
 	if err != nil {
 		return err
 	}
-	return executeTemplate(resp, "index.html", web.StatusOK, map[string]interface{}{
+	return executeTemplate(resp, "index.html", web.StatusOK, nil, map[string]interface{}{
 		"pkgs": pkgs,
 	})
 }
@@ -365,7 +396,7 @@ func serveHome(resp web.Response, req *web.Request) error {
 			return err
 		}
 
-		return executeTemplate(resp, "home"+templateExt(req), web.StatusOK,
+		return executeTemplate(resp, "home"+templateExt(req), web.StatusOK, nil,
 			map[string]interface{}{"Popular": pkgs})
 	}
 
@@ -385,36 +416,33 @@ func serveHome(resp web.Response, req *web.Request) error {
 		return err
 	}
 
-	return executeTemplate(resp, "results"+templateExt(req), web.StatusOK, map[string]interface{}{"q": q, "pkgs": pkgs})
+	return executeTemplate(resp, "results"+templateExt(req), web.StatusOK, nil,
+		map[string]interface{}{"q": q, "pkgs": pkgs})
 }
 
 func serveAbout(resp web.Response, req *web.Request) error {
-	return executeTemplate(resp, "about.html", web.StatusOK, map[string]interface{}{"Host": req.URL.Host})
+	return executeTemplate(resp, "about.html", web.StatusOK, nil,
+		map[string]interface{}{"Host": req.URL.Host})
 }
 
 func serveBot(resp web.Response, req *web.Request) error {
-	return executeTemplate(resp, "bot.html", web.StatusOK, nil)
+	return executeTemplate(resp, "bot.html", web.StatusOK, nil, nil)
 }
 
 func serveOpenSearchDescription(resp web.Response, req *web.Request) error {
-	return executeTemplate(resp, "opensearch.xml", web.StatusOK, req.URL.Host)
+	return executeTemplate(resp, "opensearch.xml", web.StatusOK, nil, req.URL.Host)
 }
 
-func serveOpenSearchSuggestions(resp web.Response, req *web.Request) error {
-	q := req.Form.Get("q")
-	pkgs, err := db.Suggestions(strings.TrimSpace(q))
+func serveTypeahead(resp web.Response, req *web.Request) error {
+	pkgs, err := db.Popular(1000)
 	if err != nil {
 		return err
 	}
-	suggestions := make([]string, len(pkgs))
+	items := make([]string, len(pkgs))
 	for i, pkg := range pkgs {
-		suggestions[i] = pkg.Path
+		items[i] = pkg.Path
 	}
-
-	var data = []interface{}{
-		q,
-		suggestions,
-	}
+	data := map[string]interface{}{"items": items}
 	w := resp.Start(web.StatusOK, web.Header{web.HeaderContentType: {"application/json; charset=uft-8"}})
 	return json.NewEncoder(w).Encode(data)
 }
@@ -449,7 +477,7 @@ func renderPresentation(resp web.Response, fname string, doc *present.Doc) error
 }
 
 func servePresentHome(resp web.Response, req *web.Request) error {
-	fname := filepath.Join(*baseDir, "templates", "presentHome.article")
+	fname := filepath.Join(*assetsDir, "presentHome.article")
 	f, err := os.Open(fname)
 	if err != nil {
 		return err
@@ -474,7 +502,7 @@ func servePresentation(resp web.Response, req *web.Request) error {
 
 	presMu.Lock()
 	for p, pres := range presentations {
-		if time.Since(pres.Updated) > 30*time.Minute {
+		if time.Since(pres.Updated) > 15*time.Minute {
 			delete(presentations, p)
 		}
 	}
@@ -498,7 +526,7 @@ func servePresentation(resp web.Response, req *web.Request) error {
 			if p, ok := pres.Files[name]; ok {
 				return p, nil
 			}
-			return nil, errors.New("pres file not found")
+			return nil, fmt.Errorf("pres file not found %s", name)
 		},
 	}
 	doc, err := ctx.Parse(bytes.NewReader(pres.Files[pres.Filename]), pres.Filename, 0)
@@ -554,7 +582,7 @@ func handleError(resp web.Response, req *web.Request, status int, err error, r i
 	case 0:
 		// nothing to do
 	case web.StatusNotFound:
-		executeTemplate(resp, "notfound"+templateExt(req), status, nil)
+		executeTemplate(resp, "notfound"+templateExt(req), status, nil, nil)
 	default:
 		s := web.StatusText(status)
 		if err == errUpdateTimeout {
@@ -615,9 +643,9 @@ func defaultBase(path string) string {
 var (
 	db              *database.Database
 	robot           = flag.Bool("robot", false, "Robot mode")
-	baseDir         = flag.String("base", defaultBase("github.com/garyburd/gopkgdoc/gddo-server"), "Base directory for templates and static files.")
-	gzBaseDir       = flag.String("gzbase", "", "Base directory for compressed static files.")
-	presentBaseDir  = flag.String("presentBase", defaultBase("code.google.com/p/go.talks/present"), "Base directory for templates and static files.")
+	assetsDir       = flag.String("assets", filepath.Join(defaultBase("github.com/garyburd/gopkgdoc/gddo-server"), "assets"), "Base directory for templates and static files.")
+	gzAssetsDir     = flag.String("gzassets", "", "Base directory for compressed static files.")
+	presentDir      = flag.String("present", defaultBase("code.google.com/p/go.talks/present"), "Base directory for templates and static files.")
 	getTimeout      = flag.Duration("get_timeout", 8*time.Second, "Time to wait for package update from the VCS.")
 	firstGetTimeout = flag.Duration("first_get_timeout", 5*time.Second, "Time to wait for first fetch of package from the VCS.")
 	maxAge          = flag.Duration("max_age", 24*time.Hour, "Update package documents older than this age.")
@@ -665,17 +693,18 @@ func main() {
 	}
 
 	if err := parseHTMLTemplates([][]string{
-		{"about.html", "common.html", "skeleton.html"},
-		{"bot.html", "common.html", "skeleton.html"},
-		{"cmd.html", "common.html", "skeleton.html"},
-		{"home.html", "common.html", "skeleton.html"},
-		{"importers.html", "common.html", "skeleton.html"},
-		{"imports.html", "common.html", "skeleton.html"},
-		{"index.html", "common.html", "skeleton.html"},
-		{"notfound.html", "common.html", "skeleton.html"},
-		{"pkg.html", "common.html", "skeleton.html"},
-		{"results.html", "common.html", "skeleton.html"},
-		{"std.html", "common.html", "skeleton.html"},
+		{"about.html", "common.html", "layout.html"},
+		{"bot.html", "common.html", "layout.html"},
+		{"cmd.html", "common.html", "layout.html"},
+		{"home.html", "common.html", "layout.html"},
+		{"importers.html", "common.html", "layout.html"},
+		{"imports.html", "common.html", "layout.html"},
+		{"interface.html", "common.html", "layout.html"},
+		{"index.html", "common.html", "layout.html"},
+		{"notfound.html", "common.html", "layout.html"},
+		{"pkg.html", "common.html", "layout.html"},
+		{"results.html", "common.html", "layout.html"},
+		{"std.html", "common.html", "layout.html"},
 		{"graph.html", "common.html"},
 	}); err != nil {
 		log.Fatal(err)
@@ -715,19 +744,19 @@ func main() {
 		go crawlGithubUpdates(*githubInterval)
 	}
 
-	playScript, err := readPlayScript(*presentBaseDir)
+	playScript, err := readPlayScript(*presentDir)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	staticConfig := &web.StaticConfig{
 		Header:      web.Header{web.HeaderCacheControl: {"public, max-age=3600"}},
-		Directory:   *baseDir,
-		GzDirectory: *gzBaseDir,
+		Directory:   *assetsDir,
+		GzDirectory: *gzAssetsDir,
 	}
 	presentStaticConfig := &web.StaticConfig{
 		Header:    web.Header{web.HeaderCacheControl: {"public, max-age=3600"}},
-		Directory: *presentBaseDir,
+		Directory: *presentDir,
 	}
 
 	h := web.NewHostRouter()
@@ -735,21 +764,21 @@ func main() {
 	r := web.NewRouter()
 	r.Add("/").GetFunc(servePresentHome)
 	r.Add("/compile").PostFunc(serveCompile)
-	r.Add("/favicon.ico").Get(staticConfig.FileHandler("static/favicon.ico"))
-	r.Add("/google3d2f3cd4cc2bb44b.html").Get(staticConfig.FileHandler("static/google3d2f3cd4cc2bb44b.html"))
-	r.Add("/humans.txt").Get(staticConfig.FileHandler("static/humans.txt"))
+	r.Add("/favicon.ico").Get(staticConfig.FileHandler("favicon.ico"))
+	r.Add("/google3d2f3cd4cc2bb44b.html").Get(staticConfig.FileHandler("google3d2f3cd4cc2bb44b.html"))
+	r.Add("/humans.txt").Get(staticConfig.FileHandler("humans.txt"))
 	r.Add("/play.js").Get(web.DataHandler(playScript, web.Header{web.HeaderContentType: {"text/javascript"}}))
-	r.Add("/robots.txt").Get(staticConfig.FileHandler("static/presentRobots.txt"))
+	r.Add("/robots.txt").Get(staticConfig.FileHandler("presentRobots.txt"))
 	r.Add("/static/<path:.*>").Get(presentStaticConfig.DirectoryHandler("static"))
 	r.Add("/<path:.+>").GetFunc(servePresentation)
 
 	h.Add("talks.<:.*>", web.ErrorHandler(handlePresentError, web.FormAndCookieHandler(6000, false, r)))
 
 	r = web.NewRouter()
-	r.Add("/favicon.ico").Get(staticConfig.FileHandler("static/favicon.ico"))
-	r.Add("/google3d2f3cd4cc2bb44b.html").Get(staticConfig.FileHandler("static/google3d2f3cd4cc2bb44b.html"))
-	r.Add("/humans.txt").Get(staticConfig.FileHandler("static/humans.txt"))
-	r.Add("/robots.txt").Get(staticConfig.FileHandler("static/presentRobots.txt"))
+	r.Add("/favicon.ico").Get(staticConfig.FileHandler("favicon.ico"))
+	r.Add("/google3d2f3cd4cc2bb44b.html").Get(staticConfig.FileHandler("google3d2f3cd4cc2bb44b.html"))
+	r.Add("/humans.txt").Get(staticConfig.FileHandler("humans.txt"))
+	r.Add("/robots.txt").Get(staticConfig.FileHandler("presentRobots.txt"))
 	r.Add("/search").GetFunc(serveAPISearch)
 	r.Add("/packages").GetFunc(serveAPIPackages)
 
@@ -760,17 +789,18 @@ func main() {
 	r.Add("/-/about").GetFunc(serveAbout)
 	r.Add("/-/bot").GetFunc(serveBot)
 	r.Add("/-/opensearch.xml").GetFunc(serveOpenSearchDescription)
-	r.Add("/-/suggest").GetFunc(serveOpenSearchSuggestions)
+	r.Add("/-/typeahead").GetFunc(serveTypeahead)
 	r.Add("/-/go").GetFunc(serveGoIndex)
 	r.Add("/-/index").GetFunc(serveIndex)
 	r.Add("/-/refresh").PostFunc(serveRefresh)
 	r.Add("/-/static/<path:.*>").Get(staticConfig.DirectoryHandler("static"))
 	r.Add("/a/index").Get(web.RedirectHandler("/-/index", 301))
 	r.Add("/about").Get(web.RedirectHandler("/-/about", 301))
-	r.Add("/favicon.ico").Get(staticConfig.FileHandler("static/favicon.ico"))
-	r.Add("/google3d2f3cd4cc2bb44b.html").Get(staticConfig.FileHandler("static/google3d2f3cd4cc2bb44b.html"))
-	r.Add("/humans.txt").Get(staticConfig.FileHandler("static/humans.txt"))
-	r.Add("/robots.txt").Get(staticConfig.FileHandler("static/robots.txt"))
+	r.Add("/favicon.ico").Get(staticConfig.FileHandler("favicon.ico"))
+	r.Add("/google3d2f3cd4cc2bb44b.html").Get(staticConfig.FileHandler("google3d2f3cd4cc2bb44b.html"))
+	r.Add("/humans.txt").Get(staticConfig.FileHandler("humans.txt"))
+	r.Add("/robots.txt").Get(staticConfig.FileHandler("robots.txt"))
+	r.Add("/BingSiteAuth.xml").Get(staticConfig.FileHandler("BingSiteAuth.xml"))
 	r.Add("/C").Get(web.RedirectHandler("http://golang.org/doc/articles/c_go_cgo.html", 301))
 	r.Add("/<path:.+>").GetFunc(servePackage)
 

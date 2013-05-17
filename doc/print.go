@@ -53,7 +53,7 @@ func printPackage(path string) {
 		err  error
 	)
 	if *local {
-		pdoc, err = doc.GetDir(path)
+		pdoc, err = doc.GetLocal(path, "", "", "%s", "#L%d")
 	} else {
 		pdoc, err = doc.Get(http.DefaultClient, path, *etag)
 	}

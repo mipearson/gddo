@@ -16,6 +16,7 @@ package main
 
 import (
 	"net/url"
+	"path"
 	"regexp"
 	"strings"
 )
@@ -51,9 +52,20 @@ var browsePatterns = []struct {
 	fn  func([]string) string
 }{
 	{
-		// Github source browser.
+		// Github tree  browser.
 		regexp.MustCompile(`^https?://(github\.com/[^/]+/[^/]+)(?:/tree/[^/]+(/.*))?$`),
 		func(m []string) string { return m[1] + m[2] },
+	},
+	{
+		// Github file browser.
+		regexp.MustCompile(`^https?://(github\.com/[^/]+/[^/]+)/blob/[^/]+/(.*)$`),
+		func(m []string) string {
+			d := path.Dir(m[2])
+			if d == "." {
+				return m[1]
+			}
+			return m[1] + "/" + d
+		},
 	},
 	{
 		// Bitbucket source borwser.
