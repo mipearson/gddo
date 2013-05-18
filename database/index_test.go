@@ -15,7 +15,7 @@
 package database
 
 import (
-	"github.com/garyburd/gopkgdoc/doc"
+	"github.com/garyburd/gddo/doc"
 	"reflect"
 	"sort"
 	"testing"

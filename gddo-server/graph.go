@@ -21,8 +21,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/garyburd/gopkgdoc/database"
-	"github.com/garyburd/gopkgdoc/doc"
+	"github.com/garyburd/gddo/database"
+	"github.com/garyburd/gddo/doc"
 )
 
 func renderGraph(pdoc *doc.Package, pkgs []database.Package, edges [][2]int) ([]byte, error) {

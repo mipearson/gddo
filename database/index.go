@@ -20,7 +20,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/garyburd/gopkgdoc/doc"
+	"github.com/garyburd/gddo/doc"
 )
 
 func isStandardPackage(path string) bool {

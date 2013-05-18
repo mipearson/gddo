@@ -20,7 +20,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/garyburd/gopkgdoc/doc"
+	"github.com/garyburd/gddo/doc"
 	"github.com/garyburd/indigo/web"
 )
 

@@ -15,7 +15,7 @@
 package main
 
 import (
-	"github.com/garyburd/gopkgdoc/database"
+	"github.com/garyburd/gddo/database"
 	"log"
 	"os"
 )

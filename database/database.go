@@ -52,7 +52,7 @@ import (
 	"time"
 
 	"code.google.com/p/snappy-go/snappy"
-	"github.com/garyburd/gopkgdoc/doc"
+	"github.com/garyburd/gddo/doc"
 	"github.com/garyburd/redigo/redis"
 )
 

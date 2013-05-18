@@ -40,8 +40,8 @@ import (
 	"time"
 
 	"code.google.com/p/go.talks/pkg/present"
-	"github.com/garyburd/gopkgdoc/database"
-	"github.com/garyburd/gopkgdoc/doc"
+	"github.com/garyburd/gddo/database"
+	"github.com/garyburd/gddo/doc"
 	"github.com/garyburd/indigo/server"
 	"github.com/garyburd/indigo/web"
 )
@@ -643,7 +643,7 @@ func defaultBase(path string) string {
 var (
 	db              *database.Database
 	robot           = flag.Bool("robot", false, "Robot mode")
-	assetsDir       = flag.String("assets", filepath.Join(defaultBase("github.com/garyburd/gopkgdoc/gddo-server"), "assets"), "Base directory for templates and static files.")
+	assetsDir       = flag.String("assets", filepath.Join(defaultBase("github.com/garyburd/gddo/gddo-server"), "assets"), "Base directory for templates and static files.")
 	gzAssetsDir     = flag.String("gzassets", "", "Base directory for compressed static files.")
 	presentDir      = flag.String("present", defaultBase("code.google.com/p/go.talks/present"), "Base directory for templates and static files.")
 	getTimeout      = flag.Duration("get_timeout", 8*time.Second, "Time to wait for package update from the VCS.")

@@ -25,7 +25,7 @@ The supported file extensions (.ext) are .slide and .article.
 
 The .html command is not supported.
 
-This page is [[http://talks.godoc.org/github.com/garyburd/gopkgdoc/gddo-server/templates/presentHome.article][an article]].
+This page is [[http://talks.godoc.org/github.com/garyburd/gddo/gddo-server/assets/presentHome.article][an article]].
 
 * Talks
 
@@ -36,4 +36,4 @@ community, then please add your talk to the wiki page.
 * Feedback
 
 Send your ideas, feature requests and questions to info@godoc.org. Report bugs using the 
-[[https://github.com/garyburd/gopkgdoc/issues/new][Github Issue Tracker]]. 
+[[https://github.com/garyburd/gddo/issues/new][Github Issue Tracker]]. 

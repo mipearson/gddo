@@ -19,7 +19,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/garyburd/gopkgdoc/database"
+	"github.com/garyburd/gddo/database"
 )
 
 var (

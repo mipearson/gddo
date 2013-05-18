@@ -19,8 +19,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/garyburd/gopkgdoc/database"
-	"github.com/garyburd/gopkgdoc/doc"
+	"github.com/garyburd/gddo/database"
+	"github.com/garyburd/gddo/doc"
 )
 
 var dangleCommand = &command{

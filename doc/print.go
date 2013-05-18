@@ -26,7 +26,7 @@ import (
 	"net/http"
 
 	"github.com/davecgh/go-spew/spew"
-	"github.com/garyburd/gopkgdoc/doc"
+	"github.com/garyburd/gddo/doc"
 )
 
 var (

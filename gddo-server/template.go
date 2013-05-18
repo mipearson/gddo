@@ -37,7 +37,7 @@ import (
 
 	"code.google.com/p/go.talks/pkg/present"
 
-	"github.com/garyburd/gopkgdoc/doc"
+	"github.com/garyburd/gddo/doc"
 	"github.com/garyburd/indigo/web"
 )
 
