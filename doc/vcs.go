@@ -37,12 +37,12 @@ var urlTemplates = []struct {
 	{
 		regexp.MustCompile(`^git\.gitorious\.org/(?P<repo>[^/]+/[^/]+)$`),
 		"https://gitorious.org/{repo}/blobs/{tag}/{dir}{0}",
-		"#line%d",
+		"%s#line%d",
 	},
 	{
 		regexp.MustCompile(`^camlistore\.org/r/p/(?P<repo>[^/]+)$`),
 		"http://camlistore.org/code/?p={repo}.git;hb={tag};f={dir}{0}",
-		"#l%d",
+		"%s#l%d",
 	},
 }
 
@@ -220,8 +220,8 @@ func getVCSDoc(client *http.Client, match map[string]string, etagSaved string) (
 	// Create the documentation.
 
 	b := &builder{
-		lineFmt: lineFmt,
 		pdoc: &Package{
+			LineFmt:     lineFmt,
 			ImportPath:  match["importPath"],
 			ProjectRoot: expand("{repo}.{vcs}", match),
 			ProjectName: path.Base(match["repo"]),

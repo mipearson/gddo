@@ -46,6 +46,16 @@ func escapePath(s string) string {
 	return u.String()
 }
 
+func sourceLinkFn(pdoc *doc.Package, pos doc.Pos, text string) htemp.HTML {
+	text = htemp.HTMLEscapeString(text)
+	if pos.Line == 0 {
+		return htemp.HTML(text)
+	}
+	u := fmt.Sprintf(pdoc.LineFmt, pdoc.Files[pos.File].URL, pos.Line)
+	u = htemp.HTMLEscapeString(u)
+	return htemp.HTML(fmt.Sprintf(`<a href="%s">%s</a>`, u, text))
+}
+
 var (
 	staticMutex sync.RWMutex
 	staticHash  = make(map[string]string)
@@ -405,6 +415,7 @@ func parseHTMLTemplates(sets [][]string) error {
 		templateName := set[0]
 		t := htemp.New("")
 		t.Funcs(htemp.FuncMap{
+			"sourceLink":        sourceLinkFn,
 			"htmlComment":       htmlCommentFn,
 			"breadcrumbs":       breadcrumbsFn,
 			"comment":           commentFn,
@@ -418,7 +429,6 @@ func parseHTMLTemplates(sets [][]string) error {
 			"noteTitle":         noteTitleFn,
 			"pageName":          pageNameFn,
 			"relativePath":      relativePathFn,
-			"relativeTime":      relativeTime,
 			"staticFile":        staticFileFn,
 			"fileHash":          fileHashFn,
 			"templateName":      func() string { return templateName },

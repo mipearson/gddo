@@ -15,10 +15,13 @@
 package doc
 
 import (
+	"bytes"
 	"go/ast"
+	"go/doc"
 	"go/printer"
 	"go/scanner"
 	"go/token"
+	"math"
 	"strconv"
 )
 
@@ -146,11 +149,11 @@ func (v *annotationVisitor) Visit(n ast.Node) ast.Visitor {
 		if list == nil {
 			ast.Walk(v, n.Type)
 		} else {
-			for _, n := range list.List {
-				for _ = range n.Names {
+			for _, f := range list.List {
+				for _ = range f.Names {
 					v.add(AnchorAnnotation, "")
 				}
-				ast.Walk(v, n.Type)
+				ast.Walk(v, f.Type)
 			}
 		}
 	case *ast.FuncDecl:
@@ -207,20 +210,20 @@ func (v *annotationVisitor) Visit(n ast.Node) ast.Visitor {
 	return nil
 }
 
-func printDecl(decl ast.Node, fset *token.FileSet, buf []byte) (Code, []byte) {
+func (b *builder) printDecl(decl ast.Decl) (d Code) {
 	v := &annotationVisitor{pathIndex: make(map[string]int)}
 	ast.Walk(v, decl)
-	buf = buf[:0]
-	err := (&printer.Config{Mode: printer.UseSpaces, Tabwidth: 4}).Fprint(sliceWriter{&buf}, fset, decl)
+	b.buf = b.buf[:0]
+	err := (&printer.Config{Mode: printer.UseSpaces, Tabwidth: 4}).Fprint(sliceWriter{&b.buf}, b.fset, decl)
 	if err != nil {
-		return Code{Text: err.Error()}, buf
+		return Code{Text: err.Error()}
 	}
 
 	var annotations []Annotation
 	var s scanner.Scanner
-	fset = token.NewFileSet()
-	file := fset.AddFile("", fset.Base(), len(buf))
-	s.Init(file, buf, nil, scanner.ScanComments)
+	fset := token.NewFileSet()
+	file := fset.AddFile("", fset.Base(), len(b.buf))
+	s.Init(file, b.buf, nil, scanner.ScanComments)
 loop:
 	for {
 		pos, tok, lit := s.Scan()
@@ -259,25 +262,74 @@ loop:
 			annotations = append(annotations, annotation)
 		}
 	}
-	return Code{Text: string(buf), Annotations: annotations, Paths: v.paths}, buf
+	return Code{Text: string(b.buf), Annotations: annotations, Paths: v.paths}
 }
 
-func commentAnnotations(src string) []Annotation {
+func (b *builder) position(n ast.Node) Pos {
+	var position Pos
+	pos := b.fset.Position(n.Pos())
+	src := b.srcs[pos.Filename]
+	if src != nil {
+		position.File = int16(src.index)
+		position.Line = int32(pos.Line)
+		end := b.fset.Position(n.End())
+		if src == b.srcs[end.Filename] {
+			n := end.Line - pos.Line
+			if n >= 0 && n <= math.MaxUint16 {
+				position.N = uint16(n)
+			}
+		}
+	}
+	return position
+}
+
+func (b *builder) printExample(e *doc.Example) (code Code, output string) {
+	output = e.Output
+
+	b.buf = b.buf[:0]
+	err := (&printer.Config{Mode: printer.UseSpaces, Tabwidth: 4}).Fprint(
+		sliceWriter{&b.buf},
+		b.fset,
+		&printer.CommentedNode{
+			Node:     e.Code,
+			Comments: e.Comments,
+		})
+	if err != nil {
+		return Code{Text: err.Error()}, output
+	}
+
+	// additional formatting if this is a function body
+	if i := len(b.buf); i >= 2 && b.buf[0] == '{' && b.buf[i-1] == '}' {
+		// remove surrounding braces
+		b.buf = b.buf[1 : i-1]
+		// unindent
+		b.buf = bytes.Replace(b.buf, []byte("\n    "), []byte("\n"), -1)
+		// remove output comment
+		if j := exampleOutputRx.FindIndex(b.buf); j != nil {
+			b.buf = bytes.TrimSpace(b.buf[:j[0]])
+		}
+	} else {
+		// drop output, as the output comment will appear in the code
+		output = ""
+	}
+
 	var annotations []Annotation
 	var s scanner.Scanner
 	fset := token.NewFileSet()
-	file := fset.AddFile("", fset.Base(), len(src))
-	s.Init(file, []byte(src), nil, scanner.ScanComments)
+	file := fset.AddFile("", fset.Base(), len(b.buf))
+	s.Init(file, b.buf, nil, scanner.ScanComments)
+scanLoop:
 	for {
 		pos, tok, lit := s.Scan()
 		switch tok {
 		case token.EOF:
-			return annotations
+			break scanLoop
 		case token.COMMENT:
 			p := file.Offset(pos)
 			e := p + len(lit)
 			annotations = append(annotations, Annotation{Kind: CommentAnnotation, Pos: int32(p), End: int32(e)})
 		}
 	}
-	return nil
+
+	return Code{Text: string(b.buf), Annotations: annotations}, output
 }

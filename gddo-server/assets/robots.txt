@@ -2,6 +2,7 @@ User-agent: *
 Disallow: /*?imports
 Disallow: /*?importers
 Disallow: /*?import-graph*
+Disallow: /*?gosrc*
 
 user-agent: AhrefsBot
 disallow: /

@@ -16,19 +16,18 @@ package doc
 
 import (
 	"bytes"
-	"fmt"
 	"go/ast"
 	"go/build"
 	"go/doc"
 	"go/format"
 	"go/parser"
-	"go/printer"
 	"go/token"
 	"io"
 	"io/ioutil"
 	"os"
 	"path"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -135,8 +134,7 @@ func addReferences(references map[string]bool, s []byte) {
 
 // builder holds the state used when building the documentation.
 type builder struct {
-	lineFmt string
-	pdoc    *Package
+	pdoc *Package
 
 	srcs     map[string]*source
 	fset     *token.FileSet
@@ -144,33 +142,10 @@ type builder struct {
 	buf      []byte // scratch space for printNode method.
 }
 
-func (b *builder) printDecl(decl ast.Node) (d Code) {
-	d, b.buf = printDecl(decl, b.fset, b.buf)
-	return
-}
-
-func (b *builder) printNode(node interface{}) string {
-	b.buf = b.buf[:0]
-	err := (&printer.Config{Mode: printer.UseSpaces, Tabwidth: 4}).Fprint(sliceWriter{&b.buf}, b.fset, node)
-	if err != nil {
-		return err.Error()
-	}
-	return string(b.buf)
-}
-
-func (b *builder) printPos(pos token.Pos) string {
-	position := b.fset.Position(pos)
-	src := b.srcs[position.Filename]
-	if src == nil || src.browseURL == "" {
-		// src can be nil when line comments are used (//line <file>:<line>).
-		return ""
-	}
-	return src.browseURL + fmt.Sprintf(b.lineFmt, position.Line)
-}
-
 type Value struct {
 	Decl Code
 	URL  string
+	Pos  Pos
 	Doc  string
 }
 
@@ -179,7 +154,7 @@ func (b *builder) values(vdocs []*doc.Value) []*Value {
 	for _, d := range vdocs {
 		result = append(result, &Value{
 			Decl: b.printDecl(d.Decl),
-			URL:  b.printPos(d.Decl.Pos()),
+			Pos:  b.position(d.Decl),
 			Doc:  d.Doc,
 		})
 	}
@@ -188,9 +163,15 @@ func (b *builder) values(vdocs []*doc.Value) []*Value {
 
 type Note struct {
 	URL  string
+	Pos  Pos
 	UID  string
 	Body string
 }
+
+type posNode token.Pos
+
+func (p posNode) Pos() token.Pos { return token.Pos(p) }
+func (p posNode) End() token.Pos { return token.Pos(p) }
 
 func (b *builder) notes(gnotes map[string][]*doc.Note) map[string][]*Note {
 	if len(gnotes) == 0 {
@@ -201,7 +182,7 @@ func (b *builder) notes(gnotes map[string][]*doc.Note) map[string][]*Note {
 		values := make([]*Note, len(gvalues))
 		for i := range gvalues {
 			values[i] = &Note{
-				URL:  b.printPos(gvalues[i].Pos),
+				Pos:  b.position(posNode(gvalues[i].Pos)),
 				UID:  gvalues[i].UID,
 				Body: strings.TrimSpace(gvalues[i].Body),
 			}
@@ -239,26 +220,7 @@ func (b *builder) getExamples(name string) []*Example {
 			n = strings.Title(n)
 		}
 
-		output := e.Output
-		code := b.printNode(&printer.CommentedNode{
-			Node:     e.Code,
-			Comments: e.Comments,
-		})
-
-		// additional formatting if this is a function body
-		if i := len(code); i >= 2 && code[0] == '{' && code[i-1] == '}' {
-			// remove surrounding braces
-			code = code[1 : i-1]
-			// unindent
-			code = strings.Replace(code, "\n    ", "\n", -1)
-			// remove output comment
-			if j := exampleOutputRx.FindStringIndex(code); j != nil {
-				code = strings.TrimSpace(code[:j[0]])
-			}
-		} else {
-			// drop output, as the output comment will appear in the code
-			output = ""
-		}
+		code, output := b.printExample(e)
 
 		play := ""
 		if e.Play != nil {
@@ -273,7 +235,7 @@ func (b *builder) getExamples(name string) []*Example {
 		docs = append(docs, &Example{
 			Name:   n,
 			Doc:    e.Doc,
-			Code:   Code{Text: code, Annotations: commentAnnotations(code)},
+			Code:   code,
 			Output: output,
 			Play:   play})
 	}
@@ -283,6 +245,7 @@ func (b *builder) getExamples(name string) []*Example {
 type Func struct {
 	Decl     Code
 	URL      string
+	Pos      Pos
 	Doc      string
 	Name     string
 	Recv     string
@@ -303,7 +266,7 @@ func (b *builder) funcs(fdocs []*doc.Func) []*Func {
 		}
 		result = append(result, &Func{
 			Decl:     b.printDecl(d.Decl),
-			URL:      b.printPos(d.Decl.Pos()),
+			Pos:      b.position(d.Decl),
 			Doc:      d.Doc,
 			Name:     d.Name,
 			Recv:     d.Recv,
@@ -318,6 +281,7 @@ type Type struct {
 	Name     string
 	Decl     Code
 	URL      string
+	Pos      Pos
 	Consts   []*Value
 	Vars     []*Value
 	Funcs    []*Func
@@ -332,7 +296,7 @@ func (b *builder) types(tdocs []*doc.Type) []*Type {
 			Doc:      d.Doc,
 			Name:     d.Name,
 			Decl:     b.printDecl(d.Decl),
-			URL:      b.printPos(d.Decl.Pos()),
+			Pos:      b.position(d.Decl),
 			Consts:   b.values(d.Consts),
 			Vars:     b.values(d.Vars),
 			Funcs:    b.funcs(d.Funcs),
@@ -381,11 +345,18 @@ type File struct {
 	URL  string
 }
 
+type Pos struct {
+	Line int32  // 0 if not valid.
+	N    uint16 // number of lines - 1
+	File int16  // index in Package.Files
+}
+
 type source struct {
 	name      string
 	browseURL string
 	rawURL    string
 	data      []byte
+	index     int
 }
 
 func (s *source) Name() string       { return s.name }
@@ -475,6 +446,7 @@ type Package struct {
 	Bugs  []string
 
 	// Source.
+	LineFmt   string
 	BrowseURL string
 	Files     []*File
 	TestFiles []*File
@@ -557,14 +529,19 @@ func (b *builder) build(srcs []*source) (*Package, error) {
 	// Parse the Go files
 
 	files := make(map[string]*ast.File)
-	for _, name := range append(bpkg.GoFiles, bpkg.CgoFiles...) {
+	names := append(bpkg.GoFiles, bpkg.CgoFiles...)
+	sort.Strings(names)
+	b.pdoc.Files = make([]*File, len(names))
+	for i, name := range names {
 		file, err := parser.ParseFile(b.fset, name, b.srcs[name].data, parser.ParseComments)
 		if err != nil {
 			b.pdoc.Errors = append(b.pdoc.Errors, err.Error())
 			continue
 		}
-		b.pdoc.Files = append(b.pdoc.Files, &File{Name: name, URL: b.srcs[name].browseURL})
-		b.pdoc.SourceSize += len(b.srcs[name].data)
+		src := b.srcs[name]
+		src.index = i
+		b.pdoc.Files[i] = &File{Name: name, URL: src.browseURL}
+		b.pdoc.SourceSize += len(src.data)
 		files[name] = file
 	}
 
@@ -572,13 +549,16 @@ func (b *builder) build(srcs []*source) (*Package, error) {
 
 	// Find examples in the test files.
 
-	for _, name := range append(bpkg.TestGoFiles, bpkg.XTestGoFiles...) {
+	names = append(bpkg.TestGoFiles, bpkg.XTestGoFiles...)
+	sort.Strings(names)
+	b.pdoc.TestFiles = make([]*File, len(names))
+	for i, name := range names {
 		file, err := parser.ParseFile(b.fset, name, b.srcs[name].data, parser.ParseComments)
 		if err != nil {
 			b.pdoc.Errors = append(b.pdoc.Errors, err.Error())
 			continue
 		}
-		b.pdoc.TestFiles = append(b.pdoc.TestFiles, &File{Name: name, URL: b.srcs[name].browseURL})
+		b.pdoc.TestFiles[i] = &File{Name: name, URL: b.srcs[name].browseURL}
 		b.pdoc.TestSourceSize += len(b.srcs[name].data)
 		b.examples = append(b.examples, doc.Examples(file)...)
 	}

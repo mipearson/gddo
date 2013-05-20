@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/garyburd/gddo/database"
+	"github.com/garyburd/gddo/doc"
 )
 
 var reindexCommand = &command{
@@ -28,34 +29,30 @@ var reindexCommand = &command{
 	usage: "reindex",
 }
 
-/*
 func fix(pdoc *doc.Package) {
-	for _, v := range pdoc.Consts {
-		doc.FixCode(&v.Decl)
-	}
-	for _, v := range pdoc.Vars {
-		doc.FixCode(&v.Decl)
-	}
-	for _, v := range pdoc.Funcs {
-		doc.FixCode(&v.Decl)
-	}
-	for _, t := range pdoc.Types {
-		doc.FixCode(&t.Decl)
-		for _, v := range t.Consts {
-			doc.FixCode(&v.Decl)
-		}
-		for _, v := range t.Vars {
-			doc.FixCode(&v.Decl)
-		}
-		for _, v := range t.Funcs {
-			doc.FixCode(&v.Decl)
-		}
-		for _, v := range t.Methods {
-			doc.FixCode(&v.Decl)
-		}
-	}
+	/*
+	   	for _, v := range pdoc.Consts {
+	   	}
+	   	for _, v := range pdoc.Vars {
+	   	}
+	   	for _, v := range pdoc.Funcs {
+	   	}
+	   	for _, t := range pdoc.Types {
+	   		for _, v := range t.Consts {
+	   		}
+	   		for _, v := range t.Vars {
+	   		}
+	   		for _, v := range t.Funcs {
+	   		}
+	   		for _, v := range t.Methods {
+	   		}
+	   	}
+	       for _, notes := range pdoc.Notes {
+	           for _, v := range notes {
+	           }
+	       }
+	*/
 }
-*/
 
 func reindex(c *command) {
 	if len(c.flag.Args()) != 0 {
@@ -69,6 +66,7 @@ func reindex(c *command) {
 	var n int
 	err = db.Do(func(pi *database.PackageInfo) error {
 		n += 1
+		fix(pi.PDoc)
 		return db.Put(pi.PDoc, time.Time{})
 	})
 	if err != nil {

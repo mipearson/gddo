@@ -38,23 +38,23 @@
 {{if .Consts}}<h3 id="_constants">Constants</h3>{{range .Consts}}<pre class="pre-x-scrollable">{{code .Decl nil}}</pre>{{.Doc|comment}}{{end}}{{end}}
 {{if .Vars}}<h3 id="_variables">Variables</h3>{{range .Vars}}<pre class="pre-x-scrollable">{{code .Decl nil}}</pre>{{.Doc|comment}}{{end}}{{end}}
 
-{{range .Funcs}}<h3 id="{{.Name}}">func {{template "SourceLink" .}}</h3>
+{{range .Funcs}}<h3 id="{{.Name}}">func {{sourceLink $.pdoc .Pos .Name}}</h3>
 <pre>{{code .Decl nil}}</pre>{{.Doc|comment}}
 {{template "Examples" map "object" . "name" .Name}}
 {{end}}
 
-{{range $t := .Types}}<h3 id="{{.Name}}">type {{template "SourceLink" .}}</h3>
+{{range $t := .Types}}<h3 id="{{.Name}}">type {{sourceLink $.pdoc .Pos .Name}}</h3>
 <pre class="pre-x-scrollable">{{code .Decl $t}}</pre>{{.Doc|comment}}
 {{range .Consts}}<pre class="pre-x-scrollable">{{code .Decl nil}}</pre>{{.Doc|comment}}{{end}}
 {{range .Vars}}<pre class="pre-x-scrollable">{{code .Decl nil}}</pre>{{.Doc|comment}}{{end}}
 {{template "Examples" map "object" . "name" .Name}}
 
-{{range .Funcs}}<h4 id="{{.Name}}">func {{template "SourceLink" . }}</h4>
+{{range .Funcs}}<h4 id="{{.Name}}">func {{sourceLink $.pdoc .Pos .Name}}</h4>
 <pre>{{code .Decl nil}}</pre>{{.Doc|comment}}
 {{template "Examples" map "object" . "name" .Name}}
 {{end}}
 
-{{range .Methods}}<h4 id="{{$t.Name}}.{{.Name}}">func ({{.Recv}}) {{template "SourceLink" .}}</h4>
+{{range .Methods}}<h4 id="{{$t.Name}}.{{.Name}}">func ({{.Recv}}) {{sourceLink $.pdoc .Pos .Name}}</h4>
 <pre>{{code .Decl nil}}</pre>{{.Doc|comment}}
 {{template "Examples" map "object" . "name" (printf "%s-%s" $t.Name .Name)}}
 {{end}}
@@ -62,9 +62,11 @@
 {{end}}{{/* range .Types */}}
 {{end}}{{/* if .Name */}}
 
-{{with .Notes}}{{with .BUG}}<h3 id="_bugs">Bugs</h3>{{range .}}<p>{{with .URL}}<a href="{{.}}">&#x261e;</a> {{end}}{{.Body}}{{end}}{{end}}{{end}}
+{{with .Notes}}{{with .BUG}}<h3 id="_bugs">Bugs</h3>{{range .}}<p>{{sourceLink $.pdoc .Pos "☞"}} {{.Body}}{{end}}{{end}}{{end}}
 
-{{if .Name}}<h3 id="_files">{{with .BrowseURL}}<a href="{{.}}">Files</a>{{else}}Package Files{{end}}</h3><p>{{range .Files}}{{template "SourceLink" .}} {{end}}</p>{{end}}
+{{if .Name}}<h3 id="_files">{{with .BrowseURL}}<a href="{{.}}">Files</a>{{else}}Package Files{{end}}</h3>
+<p>{{range .Files}}{{if .URL}}<a href="{{.URL}}">{{.Name}}</a>{{else}}{{.Name}}{{end}} {{end}}</p>
+{{end}}
 {{template "PkgCmdFooter" $}}
 <div id="_jump" tabindex="-1" class="modal hide">
   <form id="_jump_form" class="modal-form">
@@ -72,7 +74,7 @@
         <h4>Go to export</h4>
     </div>
     <div class="modal-body">
-      <input id="_jump_text" class="span5" autofocus="autofocus" autocomplete="off" type="text">
+      <input id="_jump_text" class="span5" autocomplete="off" type="text">
     </div>
     <div class="modal-footer">
       <button type="button" class="btn" data-dismiss="modal">Close</button>
@@ -82,13 +84,10 @@
 </div>
 {{end}}{{end}}
 
-
-{{define "SourceLink"}}{{if .URL}}<a href="{{.URL}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}{{end}}
-
 {{define "Examples"}}{{with .object.Examples}}<div class="accordian" id="_example_{{$.name}}">{{range .}}
 <div class="accordion-group">
-  <div class="accordion-heading"><a class="accordion-toggle" data-toggle="collapse" href="#__example_{{$.name}}{{with .Name}}-{{.}}{{end}}">Example{{with .Name}} ({{.}}){{end}}</a></div>
-  <div id="__example_{{$.name}}{{with .Name}}-{{.}}{{end}}" class="accordion-body collapse"><div class="accordion-inner">
+  <div class="accordion-heading"><a class="accordion-toggle" data-toggle="collapse" href="#_ex_{{$.name}}{{with .Name}}-{{.}}{{end}}">Example{{with .Name}} ({{.}}){{end}}</a></div>
+  <div id="_ex_{{$.name}}{{with .Name}}-{{.}}{{end}}" class="accordion-body collapse"><div class="accordion-inner">
     {{with .Doc}}<p>{{.|comment}}{{end}}
     <p>Code:{{if .Play}}<span class="pull-right"><a href="?play={{$.name}}{{with .Name}}&name={{.}}{{end}}">play</a>&nbsp;</span>{{end}}
     <pre class="pre-x-scrollable">{{code .Code nil}}</pre>
@@ -99,4 +98,4 @@
 </div>
 {{end}}{{end}}
 
-{{define "ExampleLink"}}<li><a href="#_example_{{.href}}" onclick="$('[id|=__example_{{.href}}]').addClass('in').height('auto')">{{.text}}</a>{{end}}
+{{define "ExampleLink"}}<li><a href="#_example_{{.href}}" onclick="$('[id|=_ex_{{.href}}]').addClass('in').height('auto')">{{.text}}</a>{{end}}

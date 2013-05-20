@@ -61,8 +61,8 @@ func GetLocal(importPath string, goroot, gopath string, browseURLFmt, lineFmt st
 		})
 	}
 	b := &builder{
-		lineFmt: lineFmt,
 		pdoc: &Package{
+			LineFmt:    lineFmt,
 			ImportPath: importPath,
 			Etag:       strconv.FormatInt(modTime.Unix(), 16),
 		},
