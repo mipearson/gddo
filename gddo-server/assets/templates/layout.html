@@ -29,14 +29,14 @@
     <h4>Keyboard Shortcuts</h4>
   </div>
   <div class="modal-body">
-    <table>
+    <table>{{$mutePkg := not (equal "pkg.html" templateName)}}
     <tr><td align="right"><b>?</b></td><td> : This menu</td></tr>
     <tr><td align="right"><b>/</b></td><td> : Search site</td></tr>
-    {{if equal "pkg.html" templateName}}<tr><td align="right"><b>.</b></td><td> : Go to export</td></tr>{{end}}
+    <tr{{if $mutePkg}} class="muted"{{end}}><td align="right"><b>.</b></td><td> : Go to export</td></tr>
     <tr><td align="right"><b>g</b> then <b>g</b></td><td> : Go to top of page</td></tr>
-    {{if equal "pkg.html" templateName}}<tr><td align="right"><b>g</b> then <b>i</b></td><td> : Go to index</td></tr>{{end}}
-    {{if equal "pkg.html" templateName}}<tr><td align="right"><b>g</b> then <b>e</b></td><td> : Go to examples</td></tr>{{end}}
     <tr><td align="right"><b>g</b> then <b>b</b></td><td> : Go to end of page</td></tr>
+    <tr{{if $mutePkg}} class="muted"{{end}}><td align="right"><b>g</b> then <b>i</b></td><td> : Go to index</td></tr>
+    <tr{{if $mutePkg}} class="muted"{{end}}><td align="right"><b>g</b> then <b>e</b></td><td> : Go to examples</td></tr>
     </table>
   </div>
   <div class="modal-footer">

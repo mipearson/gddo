@@ -144,7 +144,6 @@ type builder struct {
 
 type Value struct {
 	Decl Code
-	URL  string
 	Pos  Pos
 	Doc  string
 }
@@ -162,7 +161,6 @@ func (b *builder) values(vdocs []*doc.Value) []*Value {
 }
 
 type Note struct {
-	URL  string
 	Pos  Pos
 	UID  string
 	Body string
@@ -244,7 +242,6 @@ func (b *builder) getExamples(name string) []*Example {
 
 type Func struct {
 	Decl     Code
-	URL      string
 	Pos      Pos
 	Doc      string
 	Name     string
@@ -280,7 +277,6 @@ type Type struct {
 	Doc      string
 	Name     string
 	Decl     Code
-	URL      string
 	Pos      Pos
 	Consts   []*Value
 	Vars     []*Value
