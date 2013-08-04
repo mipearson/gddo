@@ -1,0 +1,22 @@
+@goColor: #375EAB; // godoc button background color.
+
+@linkColor:             @goColor; // #08c;
+
+// Inverted navbar
+@navbarInverseBackground:                @goColor; // #111111;
+@navbarInverseBackgroundHighlight:       @goColor; // #222222;
+@navbarInverseBorder:                    darken(@goColor, 5%);
+
+@navbarInverseText:                      #ddd; // @grayLight;
+@navbarInverseLinkColor:                 #ddd; // @grayLight;
+@navbarInverseLinkColorActive:           @white; // @navbarInverseLinkColorHover;
+@navbarInverseLinkBackgroundHover:       lighten(@goColor, 10%);
+@navbarInverseLinkBackgroundActive:      darken(@navbarInverseBackground, 4%);
+
+@navbarInverseSearchBackground:          lighten(@navbarInverseBackground, 10%);
+
+@navbarInverseBrandColor:                @navbarInverseLinkColor;
+
+// Default 940px grid
+// -------------------------
+@gridColumnWidth:         50px; // 60px;

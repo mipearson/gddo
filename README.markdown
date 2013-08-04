@@ -8,18 +8,18 @@ Feedback
 
 Send ideas and questions to info@godoc.org. Request features and report bugs
 using the [Github Issue
-Tracker](https://github.com/garyburd/gopkgdoc/issues/new). 
+Tracker](https://github.com/garyburd/gopkgdoc/issues/new).
 
 
 Contributing
 ------------
 
-Contributions are welcome. 
+Contributions are welcome.
 
 Before writing code, send mail to info@godoc.org to discuss what you plan to
 do. This gives the project manager a chance to validate the design, avoid
 duplication of effort and ensure that the changes fit the goals of the project.
-Do not start the discussion with a pull request. 
+Do not start the discussion with a pull request.
 
 Development Environment Setup
 -----------------------------
@@ -37,6 +37,17 @@ Development Environment Setup
 
 - Go to http://localhost:8080/ in your browser
 - Enter an import path to have the server retrieve & display a package's documentation
+
+Bootstrap Compilation Setup
+---------------------------
+
+godoc uses Bootstrap 3 for its stylesheets & javascript. A compiled &
+minified .css & .js are included with this checkout, but if you'd like
+to make changes to the stylesheets, you'll need to recompile them yourself.
+
+- Install [bootstrap-3.0.0-RC1](http://http://getbootstrap.com/) by running `bower install`
+- Install [recess](https://github.com/twitter/recess) by running `npm install -g recess`
+
 
 License
 -------
