@@ -1,5 +1,5 @@
-BOOTSTRAP=$(HOME)/src/bootstrap
-TIMEAGO=$(HOME)/src/jquery-timeago
+BOOTSTRAP=../bower_components/bootstrap
+TIMEAGO=../bower_components/jquery-timeago
 
 .PHONY: clean
 
@@ -9,11 +9,12 @@ assets/static/css/bootstrap.css: less/after.less less/before.less less/bootstrap
 	lessc -I$(BOOTSTRAP)/less -Iless less/bootstrap.less > assets/static/css/bootstrap.css
 
 assets/static/site.js: \
-	$(BOOTSTRAP)/bootstrap/js/bootstrap.min.js \
-    	$(TIMEAGO)/jquery.timeago.js \
+	$(BOOTSTRAP)/dist/js/bootstrap.min.js \
+	$(TIMEAGO)/jquery.timeago.js \
 	js/site.js
 	cat $^ > $@
 
 clean:
 	rm -f assets/static/css/bootstrap.css assets/static/site.js
+
 
