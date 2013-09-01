@@ -441,23 +441,23 @@ func executeTemplate(resp web.Response, name string, status int, header web.Head
 	return t.template.Execute(w, data)
 }
 
-type templateTracker struct {
+type storedTemplate struct {
 	template interface {
 		Execute(io.Writer, interface{}) error
 	}
 	files     []string
 	modtime   time.Time
-	parseWith func([]string) (templateTracker, error)
+	parseWith func([]string) (storedTemplate, error)
 }
 
 type templateStore struct {
-	templates map[string]templateTracker
+	templates map[string]storedTemplate
 	mutex     sync.Mutex
 }
 
-var templates = new(templateStore)
+var templates = templateStore{templates: make(map[string]storedTemplate)}
 
-func (t templateTracker) IsModified() (bool, error) {
+func (t storedTemplate) IsModified() (bool, error) {
 	templatePaths := joinTemplateDir(*assetsDir, t.files)
 	if mod, err := maxModTime(templatePaths); err != nil {
 		return false, err
@@ -466,14 +466,14 @@ func (t templateTracker) IsModified() (bool, error) {
 	}
 }
 
-func (t templateStore) GetTemplate(name string) templateTracker {
+func (t templateStore) GetTemplate(name string) storedTemplate {
 	t.mutex.Lock()
 	tracked := t.templates[name]
 	t.mutex.Unlock()
 	return tracked
 }
 
-func (t templateStore) StoreTemplate(name string, template templateTracker) {
+func (t templateStore) StoreTemplate(name string, template storedTemplate) {
 	t.mutex.Lock()
 	t.templates[name] = template
 	t.mutex.Unlock()
@@ -500,7 +500,7 @@ func parseHTMLTemplates(sets [][]string) error {
 	return nil
 }
 
-func parseHTMLTemplate(set []string) (templateTracker, error) {
+func parseHTMLTemplate(set []string) (storedTemplate, error) {
 	templateName := set[0]
 	t := htemp.New("")
 	t.Funcs(htemp.FuncMap{
@@ -523,19 +523,19 @@ func parseHTMLTemplate(set []string) (templateTracker, error) {
 	templatePaths := joinTemplateDir(*assetsDir, set)
 	var modtime time.Time
 	if mod, err := maxModTime(templatePaths); err != nil {
-		return templateTracker{}, err
+		return storedTemplate{}, err
 	} else {
 		modtime = mod
 	}
 	if _, err := t.ParseFiles(templatePaths...); err != nil {
-		return templateTracker{}, err
+		return storedTemplate{}, err
 	}
 	t = t.Lookup("ROOT")
 	if t == nil {
-		return templateTracker{}, fmt.Errorf("ROOT template not found in %v", set)
+		return storedTemplate{}, fmt.Errorf("ROOT template not found in %v", set)
 	}
 
-	template := templateTracker{template: t, files: set, modtime: modtime, parseWith: parseHTMLTemplate}
+	template := storedTemplate{template: t, files: set, modtime: modtime, parseWith: parseHTMLTemplate}
 	templates.StoreTemplate(set[0], template)
 	return template, nil
 }
@@ -561,7 +561,7 @@ func parseTextTemplates(sets [][]string) error {
 	return nil
 }
 
-func parseTextTemplate(set []string) (templateTracker, error) {
+func parseTextTemplate(set []string) (storedTemplate, error) {
 	t := ttemp.New("")
 	t.Funcs(ttemp.FuncMap{
 		"comment": commentTextFn,
@@ -570,20 +570,20 @@ func parseTextTemplate(set []string) (templateTracker, error) {
 	var modtime time.Time
 	templatePaths := joinTemplateDir(*assetsDir, set)
 	if mod, err := maxModTime(templatePaths); err != nil {
-		return templateTracker{}, err
+		return storedTemplate{}, err
 	} else {
 		modtime = mod
 	}
 
 	if _, err := t.ParseFiles(templatePaths...); err != nil {
-		return templateTracker{}, err
+		return storedTemplate{}, err
 	}
 	t = t.Lookup("ROOT")
 	if t == nil {
-		return templateTracker{}, fmt.Errorf("ROOT template not found in %v", set)
+		return storedTemplate{}, fmt.Errorf("ROOT template not found in %v", set)
 	}
 
-	template := templateTracker{template: t, files: set, modtime: modtime, parseWith: parseHTMLTemplate}
+	template := storedTemplate{template: t, files: set, modtime: modtime, parseWith: parseHTMLTemplate}
 	templates.StoreTemplate(set[0], template)
 	return template, nil
 }
