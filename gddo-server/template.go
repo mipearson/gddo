@@ -420,7 +420,7 @@ func executeTemplate(resp web.Response, name string, status int, header web.Head
 	if !ok {
 		contentType = "text/plain; charset=utf-8"
 	}
-	t := templates[name]
+	t := templates.GetTemplate(name)
 	if t.template == nil {
 		return fmt.Errorf("Template %s not found", name)
 	}
@@ -450,7 +450,12 @@ type templateTracker struct {
 	parseWith func([]string) (templateTracker, error)
 }
 
-var templates = make(map[string]templateTracker)
+type templateStore struct {
+	templates map[string]templateTracker
+	mutex     sync.Mutex
+}
+
+var templates = new(templateStore)
 
 func (t templateTracker) IsModified() (bool, error) {
 	templatePaths := joinTemplateDir(*assetsDir, t.files)
@@ -459,6 +464,19 @@ func (t templateTracker) IsModified() (bool, error) {
 	} else {
 		return t.modtime.Before(mod), nil
 	}
+}
+
+func (t templateStore) GetTemplate(name string) templateTracker {
+	t.mutex.Lock()
+	tracked := t.templates[name]
+	t.mutex.Unlock()
+	return tracked
+}
+
+func (t templateStore) StoreTemplate(name string, template templateTracker) {
+	t.mutex.Lock()
+	t.templates[name] = template
+	t.mutex.Unlock()
 }
 
 func joinTemplateDir(base string, files []string) []string {
@@ -516,8 +534,10 @@ func parseHTMLTemplate(set []string) (templateTracker, error) {
 	if t == nil {
 		return templateTracker{}, fmt.Errorf("ROOT template not found in %v", set)
 	}
-	templates[set[0]] = templateTracker{template: t, files: set, modtime: modtime, parseWith: parseHTMLTemplate}
-	return templates[set[0]], nil
+
+	template := templateTracker{template: t, files: set, modtime: modtime, parseWith: parseHTMLTemplate}
+	templates.StoreTemplate(set[0], template)
+	return template, nil
 }
 
 func maxModTime(paths []string) (time.Time, error) {
@@ -563,8 +583,9 @@ func parseTextTemplate(set []string) (templateTracker, error) {
 		return templateTracker{}, fmt.Errorf("ROOT template not found in %v", set)
 	}
 
-	templates[set[0]] = templateTracker{template: t, files: set, modtime: modtime, parseWith: parseHTMLTemplate}
-	return templates[set[0]], nil
+	template := templateTracker{template: t, files: set, modtime: modtime, parseWith: parseHTMLTemplate}
+	templates.StoreTemplate(set[0], template)
+	return template, nil
 }
 
 var presentTemplates = make(map[string]*htemp.Template)
