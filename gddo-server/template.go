@@ -424,14 +424,16 @@ func executeTemplate(resp web.Response, name string, status int, header web.Head
 	if t.template == nil {
 		return fmt.Errorf("Template %s not found", name)
 	}
-	if modified, err := t.IsModified(); err != nil {
-		return err
-	} else if modified {
-		var err error
-		if t, err = t.parseWith(t.files); err != nil {
+	if *developmentMode {
+		if modified, err := t.IsModified(); err != nil {
 			return err
+		} else if modified {
+			var err error
+			if t, err = t.parseWith(t.files); err != nil {
+				return err
+			}
+			log.Printf("Reparsed template files: %s", strings.Join(t.files, ", "))
 		}
-		log.Printf("Reparsed template files: %s", strings.Join(t.files, ", "))
 	}
 	if header == nil {
 		header = make(web.Header)
@@ -521,6 +523,7 @@ func parseHTMLTemplate(set []string) (storedTemplate, error) {
 		"templateName":      func() string { return templateName },
 	})
 	templatePaths := joinTemplateDir(*assetsDir, set)
+
 	var modtime time.Time
 	if mod, err := maxModTime(templatePaths); err != nil {
 		return storedTemplate{}, err

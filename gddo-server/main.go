@@ -768,6 +768,7 @@ var (
 	secretsPath     = flag.String("secrets", "secrets.json", "Path to file containing application ids and credentials for other services.")
 	redirGoTalks    = flag.Bool("redirGoTalks", true, "Redirect paths with prefix 'code.google.com/p/go.talks/' to talks.golang.org")
 	srcZip          = flag.String("srcZip", "", "")
+	developmentMode = flag.Bool("development", false, "Automatically reload templates")
 
 	secrets struct {
 		// HTTP user agent for outbound requests
