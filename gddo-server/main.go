@@ -893,13 +893,15 @@ func main() {
 	go runBackgroundTasks()
 
 	staticConfig := &web.StaticConfig{
-		Header:      web.Header{web.HeaderCacheControl: {"public, max-age=3600"}},
 		Directory:   *assetsDir,
 		GzDirectory: *gzAssetsDir,
 	}
 	presentStaticConfig := &web.StaticConfig{
-		Header:    web.Header{web.HeaderCacheControl: {"public, max-age=3600"}},
 		Directory: *presentDir,
+	}
+	if !*developmentMode {
+		staticConfig.Header = web.Header{web.HeaderCacheControl: {"public, max-age=3600"}}
+		presentStaticConfig.Header = web.Header{web.HeaderCacheControl: {"public, max-age=3600"}}
 	}
 
 	h := web.NewHostRouter()
