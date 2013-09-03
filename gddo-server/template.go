@@ -509,6 +509,7 @@ func parseHTMLTemplate(set []string) (storedTemplate, error) {
 		"cacheBuster":       cacheBuster,
 		"code":              codeFn,
 		"comment":           commentFn,
+		"developmentMode":   func() bool { return *developmentMode },
 		"equal":             reflect.DeepEqual,
 		"fileHash":          fileHashFn,
 		"gaAccount":         gaAccountFn,

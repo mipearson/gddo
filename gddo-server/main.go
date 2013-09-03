@@ -768,7 +768,7 @@ var (
 	secretsPath     = flag.String("secrets", "secrets.json", "Path to file containing application ids and credentials for other services.")
 	redirGoTalks    = flag.Bool("redirGoTalks", true, "Redirect paths with prefix 'code.google.com/p/go.talks/' to talks.golang.org")
 	srcZip          = flag.String("srcZip", "", "")
-	developmentMode = flag.Bool("development", false, "Automatically reload templates")
+	developmentMode = flag.Bool("development", false, "Automatically reload templates & use LESS to build stylesheets")
 
 	secrets struct {
 		// HTTP user agent for outbound requests
@@ -934,13 +934,19 @@ func main() {
 	h.Add("api.<:.*>", web.ErrorHandler(handleAPIError, web.FormAndCookieHandler(6000, false, r)))
 
 	r = web.NewRouter()
+	if *developmentMode {
+		r.Add("/-/third_party/<path:.*>").Get(staticConfig.DirectoryHandler("third_party"))
+		r.Add("/-/site.less").Get(staticConfig.FileHandler("site.less"))
+	} else {
+		r.Add("/-/site.css").Get(dataHandler("site.css", "text/css", *assetsDir,
+			"third_party/bootstrap/css/bootstrap.min.css", "site.css"))
+	}
 	r.Add("/-/site.js").Get(dataHandler("site.js", "text/javascript", *assetsDir,
 		"third_party/jquery.timeago.js",
 		"third_party/typeahead.min.js",
 		"third_party/bootstrap/js/bootstrap.min.js",
 		"site.js"))
-	r.Add("/-/site.css").Get(dataHandler("site.css", "text/css", *assetsDir,
-		"third_party/bootstrap/css/bootstrap.min.css", "site.css"))
+
 	r.Add("/").GetFunc(serveHome)
 	r.Add("/-/about").GetFunc(serveAbout)
 	r.Add("/-/bot").GetFunc(serveBot)
