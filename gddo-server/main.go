@@ -941,6 +941,7 @@ func main() {
 		r.Add("/-/site.css").Get(dataHandler("site.css", "text/css", *assetsDir,
 			"third_party/bootstrap/css/bootstrap.min.css", "site.css"))
 	}
+	r.Add("/-/fonts/<path:.*>").Get(staticConfig.DirectoryHandler("third_party/bootstrap/fonts"))
 	r.Add("/-/site.js").Get(dataHandler("site.js", "text/javascript", *assetsDir,
 		"third_party/jquery.timeago.js",
 		"third_party/typeahead.min.js",
