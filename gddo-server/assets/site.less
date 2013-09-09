@@ -1,6 +1,24 @@
 @import "third_party/bootstrap/less/variables.less";
+@import "third_party/bootstrap/less/mixins.less";
 
 h4 { margin-top: 20px; }
+
+.gddo-sidebar {
+    .make-md-column(3);
+}
+.gddo-content {
+    .make-md-column(9);
+}
+
+.gddo-nav {
+  margin-top: 30px;
+  margin-bottom: 30px;
+  padding-top:    10px;
+  padding-bottom: 10px;
+  text-shadow: 0 1px 0 #fff;
+  background-color: #f7f5fa;
+  border-radius: 5px;
+}
 
 #x-projnav {
     min-height: 20px;

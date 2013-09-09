@@ -3,11 +3,31 @@
 {{define "Body"}}
   {{template "ProjectNav" $}}
   {{with .pdoc}}
+    <div class="row">
+    <div class="gddo-sidebar hidden-xs hidden-sm">
+      <ul class="gddo-nav nav">
+        <li><a href="#pkg-intro">Introduction</a></li>
+        <li><a href="#pkg-index">Index</a></li>
+        {{if .Consts}}<li><a href="#pkg-constants">Constants</a></li>{{end}}
+        {{if .Vars}}<li><a href="#pkg-vars">Variables</a></li>{{end}}
+
+        <li>
+          <a href="#">Functions</a>
+          <ul class="nav">
+            {{range .Funcs}}
+              <li><a class="permalink" href="#{{.Name}}">fun {{.Decl.Text}}</a></li>
+            {{end}}
+          </ul>
+        </li>
+
+
+      </ul>
+    </div>
+    <div class="gddo-content">
     <h2>package {{.Name}}</h2>
     <p><code>import "{{.ImportPath}}"</code>
     {{.Doc|comment}}
     {{template "Examples" .|$.pdoc.ObjExamples}}
-
     <h3 id="pkg-index">Index <a class="permalink" href="#pkg-index">&para;</a></h3>
     {{if .Truncated}}<div class="alert">The documentation displayed here is incomplete. Use the godoc command to read the complete documentation.</div>{{end}}
 
@@ -59,7 +79,8 @@
     {{end}}{{/* range .Types */}}
 
     {{with .Notes}}{{with .BUG}}<h3 id="pkg-note-bug">Bugs <a class="permalink" href="#pkg-note-bug">&para;</a></h3>{{range .}}<p>{{$.pdoc.SourceLink .Pos "☞" ""}} {{.Body}}{{end}}{{end}}{{end}}
-
+    </div>
+    </div>
   {{end}}
 
 {{template "PkgCmdFooter" $}}
