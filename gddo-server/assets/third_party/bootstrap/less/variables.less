@@ -18,7 +18,7 @@
 // Brand colors
 // -------------------------
 
-@brand-primary:         #428bca;
+@brand-primary:         #375eab; // GODOC
 @brand-success:         #5cb85c;
 @brand-warning:         #f0ad4e;
 @brand-danger:          #d9534f;
@@ -239,18 +239,18 @@
 @navbar-height:                    50px;
 @navbar-margin-bottom:             @line-height-computed;
 @navbar-default-color:             #777;
-@navbar-default-bg:                #f8f8f8;
-@navbar-default-border:            darken(@navbar-default-bg, 6.5%);
+@navbar-default-bg:                hsl(209, 51%, 92%); // GODOC
+@navbar-default-border:            hsl(209, 51%, 88%); // GODOC
 @navbar-border-radius:             @border-radius-base;
 @navbar-padding-horizontal:        floor(@grid-gutter-width / 2);
 @navbar-padding-vertical:          ((@navbar-height - @line-height-computed) / 2);
 
 // Navbar links
 @navbar-default-link-color:                #777;
-@navbar-default-link-hover-color:          #333;
-@navbar-default-link-hover-bg:             transparent;
-@navbar-default-link-active-color:         #555;
-@navbar-default-link-active-bg:            darken(@navbar-default-bg, 6.5%);
+@navbar-default-link-hover-color:          #000; // GODOC
+@navbar-default-link-hover-bg:             hsl(209, 51%, 88%); // GODOC
+@navbar-default-link-active-color:         #000; // GODOC
+@navbar-default-link-active-bg:            hsl(209, 51%, 88%); // GODOC
 @navbar-default-link-disabled-color:       #ccc;
 @navbar-default-link-disabled-bg:          transparent;
 
@@ -611,10 +611,12 @@
 // --------------------------------------------------
 
 // Small screen / tablet
-@container-tablet:            ((720px + @grid-gutter-width));
+@container-tablet:            728px;
 
 // Medium screen / desktop
-@container-desktop:           ((940px + @grid-gutter-width));
+// @container-desktop:           ((940px + @grid-gutter-width));
+@container-desktop:           @container-tablet; // GODOC
 
 // Large screen / wide desktop
-@container-lg-desktop:        ((1140px + @grid-gutter-width));
+// @container-lg-desktop:        ((1140px + @grid-gutter-width));
+@container-lg-desktop:        @container-tablet; // GODOC

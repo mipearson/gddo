@@ -1,14 +1,13 @@
-html { background-color: whitesmoke; }
-body { background-color: white; }
+@import "third_party/bootstrap/less/variables.less";
+
 h4 { margin-top: 20px; }
-.container { max-width: 728px; }
 
 #x-projnav {
-  min-height: 20px;
-  margin-bottom: 20px;
-  background-color: #eee;
-  padding: 9px;
-  border-radius: 3px;
+    min-height: 20px;
+    margin-bottom: 20px;
+    background-color: #eee;
+    padding: 9px;
+    border-radius: 3px;
 }
 
 #x-footer {
@@ -29,10 +28,10 @@ h4 { margin-top: 20px; }
 }
 
 code {
-  background-color: inherit;
-  border: none;
-  color: inherit;
-  padding: 0;
+    background-color: inherit;
+    border: none;
+    color: inherit;
+    padding: 0;
 }
 
 pre {
@@ -56,20 +55,9 @@ a, .navbar-default .navbar-brand {
     color: #375eab;
 }
 
-.navbar-default, #x-footer {
-    background-color: hsl(209, 51%, 92%);
-    border-color: hsl(209, 51%, 88%);
-}
-
-.navbar-default .navbar-nav > .active > a,
-.navbar-default .navbar-nav > .active > a:hover,
-.navbar-default .navbar-nav > .active > a:focus {
-    background-color: hsl(209, 51%, 88%);
-}
-
-.navbar-default .navbar-nav > li > a:hover,
-.navbar-default .navbar-nav > li > a:focus {
-    color: #000;
+#x-footer {
+    background-color: @navbar-default-bg;
+    border-color: @navbar-default-border;
 }
 
 .panel-default > .panel-heading {
