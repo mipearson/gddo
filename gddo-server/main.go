@@ -844,9 +844,6 @@ func main() {
 	go runBackgroundTasks()
 
 	cssFiles := []string{"third_party/bootstrap/css/bootstrap.min.css", "site.css"}
-	if *sidebarEnabled {
-		cssFiles = append(cssFiles, "sidebar.css")
-	}
 
 	staticServer := httputil.StaticServer{
 		Dir:    *assetsDir,
@@ -876,6 +873,10 @@ func main() {
 		"third_party/bootstrap/js/bootstrap.min.js",
 		"site.js"))
 	mux.Handle("/-/site.css", staticServer.FilesHandler(cssFiles...))
+	if *sidebarEnabled {
+		mux.Handle("/-/sidebar.css", staticServer.FilesHandler("sidebar.css"))
+	}
+
 	mux.Handle("/-/about", handler(serveAbout))
 	mux.Handle("/-/bot", handler(serveBot))
 	mux.Handle("/-/go", handler(serveGoIndex))
